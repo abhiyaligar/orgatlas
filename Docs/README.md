@@ -1,6 +1,6 @@
 # OrgAtlas documentation
 
-This directory is the source of truth for product and technical decisions. The app is deliberately undocumented-code-free until these documents are agreed.
+This directory is the source of truth for product and technical decisions. Implementation follows these documents rather than preceding them.
 
 | Document | Purpose | Update when |
 | --- | --- | --- |
@@ -13,7 +13,6 @@ This directory is the source of truth for product and technical decisions. The a
 | [API contract](API_CONTRACT.md) | Planned browser-to-API interfaces | A request or response changes |
 | [MCP server design](MCP_SERVER.md) | Read-only context tools, resources, prompts, and safety rules for coding agents | An agent capability, authorization boundary, or graph-context contract changes |
 | [Deployment](DEPLOYMENT.md) | Render/FalkorDB Cloud environments and release checklist | Infrastructure or environment configuration changes |
-| [Development process](DEVELOPMENT_PROCESS.md) | Phased delivery plan, module boundaries, reuse rules, naming, clean-code, and access controls | Build sequence, module ownership, or engineering standards change |
 | [Demo plan](DEMO_PLAN.md) | Judge-facing story, seed data, and fallback plan | The demo scenario changes |
 | [Decisions](DECISIONS.md) | Architecture Decision Records (ADRs) | A material choice is made or reversed |
 

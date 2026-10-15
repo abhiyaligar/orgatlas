@@ -4,11 +4,7 @@
 
 OrgAtlas turns engineers, teams, services, repositories, documents, incidents, and decisions into a connected FalkorDB graph. It helps new engineering hires understand their team’s systems, ownership, dependencies, and essential learning path; it also traces architecture decisions back to the evidence that supports them. A read-only MCP server gives coding agents the same verified architecture context before they plan or change code.
 
-## Status
-
-**Planning only.** This repository intentionally contains no application code yet. The product, architecture, schema, interface, deployment, and demo decisions are documented before implementation begins.
-
-## Proposed stack
+## Stack
 
 | Area | Choice |
 | --- | --- |

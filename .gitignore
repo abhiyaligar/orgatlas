@@ -19,6 +19,11 @@ backend/.mypy_cache/
 backend/coverage/
 backend/.coverage
 
+# Local relational/metadata database files (schema is governed by Alembic)
+backend/*.db
+backend/*.sqlite3
+backend/*.sqlite
+
 # Local/generated demo artifacts; curated fictional fixtures remain tracked
 data/private/
 data/generated/
@@ -39,4 +44,4 @@ Thumbs.db
 .vscode/
 *.log
 
-DEVELOPMENT_PROCEESS.md
+DEVELOPMENT_PROCESS.md
