@@ -269,8 +269,9 @@ def generate_seed_queries(fixtures: Dict[str, Any]) -> List[str]:
 
 def seed_database(dry_run: bool = False) -> Dict[str, Any]:
     """Orchestrates Alembic migration and FalkorDB seed ingestion."""
-    # 1. Run Alembic migrations first
-    run_alembic_migrations()
+    # 1. Run Alembic migrations first, unless this is a side-effect free dry run
+    if not dry_run:
+        run_alembic_migrations()
 
     # 2. Load fixtures
     fixtures_dir = Path(__file__).resolve().parent.parent.parent.parent / "data" / "fixtures"
