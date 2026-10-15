@@ -308,7 +308,7 @@ def seed_database(dry_run: bool = False) -> Dict[str, Any]:
         }
 
     # 4. Connect to FalkorDB and execute
-    graph = graph_manager.get_graph()
+    graph = graph_manager.get_or_create_graph()
 
     # Create indices
     for stmt in index_statements:

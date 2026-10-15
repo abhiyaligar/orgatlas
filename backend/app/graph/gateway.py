@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from app.graph.connection import graph_manager
 from app.graph import queries
+from app.core.errors import GraphQueryError, OrgAtlasError
 
 logger = logging.getLogger(__name__)
 
@@ -14,13 +15,21 @@ class GraphGateway:
         self.manager = manager
 
     def _execute(self, query: str, params: Optional[Dict[str, Any]] = None) -> List[Any]:
+        """Run a parameterized query and return raw rows.
+
+        Failures propagate rather than collapsing into an empty result: an
+        unreachable graph or a mistyped graph name is an operational fault, and
+        reporting it as "no evidence found" would misdescribe it to the user.
+        """
         try:
             graph = self.manager.get_graph()
             result = graph.query(query, params or {})
             return result.result_set
+        except (GraphQueryError, OrgAtlasError):
+            raise
         except Exception as e:
-            logger.warning("FalkorDB query failed (%s). Returning empty result: %s", query[:60], str(e))
-            return []
+            logger.error("FalkorDB query failed (%s...): %s", query[:60], str(e))
+            raise GraphQueryError(f"Knowledge graph query failed: {str(e)}") from e
 
     def get_onboarding_context(self, team_id: str) -> Optional[Dict[str, Any]]:
         rows = self._execute(queries.GET_ONBOARDING_TOPICS_BY_TEAM, {"team_id": team_id})

@@ -23,6 +23,24 @@ class GraphConnectionError(OrgAtlasError):
         super().__init__(message=message, status_code=503)
 
 
+class GraphNotFoundError(OrgAtlasError):
+    def __init__(self, graph_name: str, available: list):
+        super().__init__(
+            message=(
+                f"FalkorDB graph '{graph_name}' does not exist on this instance. "
+                f"Available graphs: {', '.join(available) or 'none'}. "
+                "Check FALKORDB_GRAPH_NAME, or run the seed script to create it."
+            ),
+            status_code=503,
+            details={"graph_name": graph_name, "available_graphs": available},
+        )
+
+
+class GraphQueryError(OrgAtlasError):
+    def __init__(self, message: str = "Knowledge graph query failed"):
+        super().__init__(message=message, status_code=503)
+
+
 class EntityNotFoundError(OrgAtlasError):
     def __init__(self, entity_id: str):
         super().__init__(

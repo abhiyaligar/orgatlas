@@ -8,6 +8,9 @@ class HealthResponse(BaseModel):
     environment: str
     version: str = "0.1.0"
     graph_connected: bool = True
+    graph_name: str = ""
+    graph_exists: bool = False
+    available_graphs: List[str] = Field(default_factory=list)
 
 
 class DemoPrompt(BaseModel):
