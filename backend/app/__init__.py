@@ -1,0 +1,1 @@
+"""OrgAtlas backend application package."""
