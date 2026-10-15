@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.router import api_router
 from app.core.config import settings
 from app.core.errors import OrgAtlasError, orgatlas_exception_handler
 from app.core.logging import setup_logging
@@ -38,15 +39,7 @@ def create_app() -> FastAPI:
     # Register custom exception handler
     app.add_exception_handler(OrgAtlasError, orgatlas_exception_handler)
 
-    # Base health check endpoint
-    @app.get("/api/health", tags=["Health"])
-    async def health_check():
-        return {
-            "status": "ok",
-            "service": "orgatlas-api",
-            "environment": settings.ENVIRONMENT,
-            "version": "0.1.0",
-        }
+    app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 
     return app
 

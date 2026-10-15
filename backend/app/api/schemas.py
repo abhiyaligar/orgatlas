@@ -7,6 +7,7 @@ class HealthResponse(BaseModel):
     service: str = "orgatlas-api"
     environment: str
     version: str = "0.1.0"
+    graph_connected: bool = True
 
 
 class DemoPrompt(BaseModel):
@@ -104,3 +105,14 @@ class EntityDetailResponse(BaseModel):
     properties: Dict[str, Any] = Field(default_factory=dict)
     neighbors: List[Dict[str, Any]] = Field(default_factory=list)
     citations: List[Citation] = Field(default_factory=list)
+
+
+class DecisionTraceResponse(BaseModel):
+    decision_id: str
+    title: str
+    summary: str
+    alternatives: str
+    status: str
+    decided_at: Optional[str] = None
+    citations: List[Citation] = Field(default_factory=list)
+    graph: EvidenceSubgraph = Field(default_factory=EvidenceSubgraph)
