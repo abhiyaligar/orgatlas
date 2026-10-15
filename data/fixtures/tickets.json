@@ -13,6 +13,6 @@
     "status": "Closed",
     "url": "https://jira.acmecloud.internal/browse/PAY-1105",
     "assignee_id": "person_marcus_vance",
-    "implements_decision_id": null
+    "implements_decision_id": "dec_vault_transit_cache"
   }
 ]

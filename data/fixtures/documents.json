@@ -38,5 +38,25 @@
     "created_at": "2024-08-01T10:00:00Z",
     "excerpt": "Welcome to Payments Core! Your first week focus is understanding our checkout architecture, card tokenization boundaries, and Kafka event contracts. Review RFC-042 and shadow Sarah Chen on on-call rotations.",
     "documents_entity_ids": ["team_payments", "svc_checkout", "svc_token_service"]
+  },
+  {
+    "id": "doc_postmortem_2024_07_token_latency",
+    "title": "Incident Postmortem: SEV-2 Token Service Key Rotation Latency",
+    "type": "postmortem",
+    "url": "https://wiki.acmecloud.internal/incidents/postmortem-2024-07-20",
+    "author_id": "person_david_kim",
+    "created_at": "2024-07-21T16:00:00Z",
+    "excerpt": "Root Cause: Token Service called the Vault transit engine on every tokenization request with no caching, so a scheduled key rotation added roughly 400ms of upstream latency and pushed p99 tokenization latency to 2.1s. Checkout retried, amplifying the load on the same service. Contributing factor: rotation was scheduled during peak hours. Action Item: cache transit responses in-process with a short TTL and single-flight upstream calls.",
+    "documents_entity_ids": ["inc_2024_07_token_latency", "svc_token_service", "dec_vault_transit_cache"]
+  },
+  {
+    "id": "doc_adr_vault_transit_cache",
+    "title": "ADR-014: Transit Response Caching for Token Service",
+    "type": "design_doc",
+    "url": "https://wiki.acmecloud.internal/docs/adr-014-transit-caching",
+    "author_id": "person_marcus_vance",
+    "created_at": "2024-07-22T09:15:00Z",
+    "excerpt": "Decision: cache Vault transit responses in-process with a 300ms TTL, collapsing concurrent misses into a single upstream call. A cached token is still non-reversible; we are caching ciphertext, not plaintext card data, so the zero-knowledge boundary is preserved. Trade-off accepted: a rotated key takes up to one TTL to propagate.",
+    "documents_entity_ids": ["svc_token_service", "dec_vault_transit_cache", "tech_hashicorp_vault"]
   }
 ]

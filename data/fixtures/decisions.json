@@ -11,5 +11,18 @@
     "affected_service_ids": ["svc_checkout", "svc_billing"],
     "supported_by_doc_ids": ["doc_rfp_kafka", "doc_postmortem_2024_03"],
     "implements_ticket_ids": ["ticket_pay_1042"]
+  },
+  {
+    "id": "dec_vault_transit_cache",
+    "title": "Cache Vault Transit Responses in Token Service to Absorb Key Rotation Latency",
+    "status": "Accepted",
+    "decided_at": "2024-07-22T11:30:00Z",
+    "summary": "Token Service now caches Vault transit engine responses in-process with a short TTL and falls back to a single-flight upstream call, so a key rotation no longer adds latency to every tokenization request.",
+    "alternatives": "1. Increase Token Service worker pool size (rejected; only masks the spike and increases Vault load). 2. Pin the Vault primary and rotate outside peak hours (rejected; rotation cadence is mandated by the PCI programme). 3. Pre-warm the transit key before rotation (rejected; requires privileged Vault access from the service tier).",
+    "decided_by_person_ids": ["person_marcus_vance", "person_alex_rivera"],
+    "decided_by_team_ids": ["team_platform"],
+    "affected_service_ids": ["svc_token_service", "svc_checkout"],
+    "supported_by_doc_ids": ["doc_postmortem_2024_07_token_latency", "doc_runbook_token_service"],
+    "implements_ticket_ids": ["ticket_pay_1105"]
   }
 ]
