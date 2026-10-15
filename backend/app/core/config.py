@@ -1,5 +1,13 @@
+from pathlib import Path
 from typing import List, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+REPO_ROOT = BACKEND_DIR.parent
+
+# Resolved by absolute path so the service behaves the same whether it is
+# started from the repository root or from backend/.
+ENV_FILES = (str(REPO_ROOT / ".env"), str(BACKEND_DIR / ".env"))
 
 
 class Settings(BaseSettings):
@@ -31,7 +39,7 @@ class Settings(BaseSettings):
     MCP_API_TOKEN: Optional[str] = None
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=ENV_FILES,
         env_file_encoding="utf-8",
         extra="ignore",
     )
