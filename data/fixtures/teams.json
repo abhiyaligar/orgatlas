@@ -1,0 +1,14 @@
+[
+  {
+    "id": "team_payments",
+    "organization_id": "org_acme_cloud",
+    "name": "Payments Core",
+    "mission": "Power frictionless, PCI-compliant checkout, card tokenization, subscription billing, and ledger settlement at scale."
+  },
+  {
+    "id": "team_platform",
+    "organization_id": "org_acme_cloud",
+    "name": "Cloud Infrastructure",
+    "mission": "Provide resilient distributed streaming, Kubernetes clusters, telemetry pipelines, and developer deployment tooling."
+  }
+]

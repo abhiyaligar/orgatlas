@@ -1,0 +1,26 @@
+[
+  {
+    "id": "tech_kafka",
+    "name": "Apache Kafka",
+    "category": "Event Streaming & Messaging",
+    "description": "High-throughput distributed event log used for decoupled payment processing, audit trails, and reconciliation."
+  },
+  {
+    "id": "tech_postgres",
+    "name": "PostgreSQL",
+    "category": "Relational Database",
+    "description": "Primary ACID transaction store for account ledger, customer profiles, and order states."
+  },
+  {
+    "id": "tech_redis",
+    "name": "Redis",
+    "category": "Distributed Cache & Rate Limiting",
+    "description": "In-memory caching tier for checkout session tokens and idempotent request deduplication."
+  },
+  {
+    "id": "tech_hashicorp_vault",
+    "name": "HashiCorp Vault",
+    "category": "Secret & Key Management",
+    "description": "Hardware-backed key encryption engine used by Token Service for credit card PAN protection."
+  }
+]

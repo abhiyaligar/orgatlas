@@ -1,0 +1,20 @@
+[
+  {
+    "id": "inc_2024_03_black_friday",
+    "title": "Checkout Cascade Failure During Spring Flash Sale",
+    "severity": "SEV-1",
+    "occurred_at": "2024-03-15T14:22:00Z",
+    "summary": "Synchronous HTTP timeouts between Checkout Service and downstream Billing caused connection pool exhaustion, dropping 38% of checkout attempts for 47 minutes.",
+    "affected_service_ids": ["svc_checkout", "svc_billing"],
+    "led_to_decision_id": "dec_kafka_async"
+  },
+  {
+    "id": "inc_2024_07_token_latency",
+    "title": "Token Service Key Rotation Timeout Spike",
+    "severity": "SEV-2",
+    "occurred_at": "2024-07-20T09:15:00Z",
+    "summary": "Vault key rotation triggered elevated latency on Token Service tokenization requests, causing intermittent checkout retries.",
+    "affected_service_ids": ["svc_token_service", "svc_checkout"],
+    "led_to_decision_id": null
+  }
+]

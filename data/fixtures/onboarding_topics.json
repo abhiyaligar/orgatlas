@@ -1,0 +1,29 @@
+[
+  {
+    "id": "topic_pay_w1_01",
+    "team_id": "team_payments",
+    "title": "Payments Domain & Architecture Foundations",
+    "sequence": 1,
+    "summary": "Understand Acme SaaS payment processing flows, PCI compliance boundaries, and multi-tenant billing models.",
+    "resources": ["doc_payments_onboarding_guide"],
+    "learn_about_entity_ids": ["svc_checkout", "svc_token_service", "svc_billing"]
+  },
+  {
+    "id": "topic_pay_w1_02",
+    "team_id": "team_payments",
+    "title": "Core Services & Ownership Map",
+    "sequence": 2,
+    "summary": "Deep dive into Checkout Service and Token Service codebases, local setup, Vault key rotation, and on-call runbooks.",
+    "resources": ["doc_runbook_token_service"],
+    "learn_about_entity_ids": ["svc_token_service", "repo_checkout", "repo_token_service"]
+  },
+  {
+    "id": "topic_pay_w1_03",
+    "team_id": "team_payments",
+    "title": "Kafka Event Pipeline & Incident Archaeology",
+    "sequence": 3,
+    "summary": "Study the history behind our Kafka event-driven migration, reviewing the March 2024 outage postmortem and RFC-042.",
+    "resources": ["doc_rfp_kafka", "doc_postmortem_2024_03"],
+    "learn_about_entity_ids": ["dec_kafka_async", "inc_2024_03_black_friday", "tech_kafka"]
+  }
+]

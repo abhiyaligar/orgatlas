@@ -1,0 +1,15 @@
+[
+  {
+    "id": "dec_kafka_async",
+    "title": "Adopt Asynchronous Event Sourcing via Kafka for Payment Processing",
+    "status": "Accepted",
+    "decided_at": "2024-04-02T16:00:00Z",
+    "summary": "Migrate all payment authorization, order confirmation, and ledger recording from synchronous REST calls to Kafka event streams to eliminate cascading outages and buffer sudden traffic spikes.",
+    "alternatives": "1. Synchronous REST with exponential backoff & circuit breakers (rejected due to memory pool bloat). 2. RabbitMQ message broker (rejected due to lack of replayability and partitioning scalability).",
+    "decided_by_person_ids": ["person_sarah_chen", "person_alex_rivera"],
+    "decided_by_team_ids": ["team_payments", "team_platform"],
+    "affected_service_ids": ["svc_checkout", "svc_billing"],
+    "supported_by_doc_ids": ["doc_rfp_kafka", "doc_postmortem_2024_03"],
+    "implements_ticket_ids": ["ticket_pay_1042"]
+  }
+]

@@ -1,0 +1,42 @@
+[
+  {
+    "id": "svc_checkout",
+    "name": "Checkout Service",
+    "owner_team_id": "team_payments",
+    "repository_id": "repo_checkout",
+    "criticality": "critical",
+    "description": "Orchestrates cart checkout, payment validation, idempotent order reservation, and emits payment authorization events.",
+    "technology_ids": ["tech_kafka", "tech_redis"],
+    "dependency_ids": ["svc_token_service"]
+  },
+  {
+    "id": "svc_token_service",
+    "name": "Token Service",
+    "owner_team_id": "team_payments",
+    "repository_id": "repo_token_service",
+    "criticality": "critical",
+    "description": "Performs zero-knowledge card tokenization, cryptographic key rotation, and PCI token resolution.",
+    "technology_ids": ["tech_hashicorp_vault", "tech_postgres"],
+    "dependency_ids": []
+  },
+  {
+    "id": "svc_billing",
+    "name": "Billing Engine",
+    "owner_team_id": "team_payments",
+    "repository_id": "repo_billing",
+    "criticality": "high",
+    "description": "Consumes payment authorization events, manages recurring subscription cycles, and generates customer invoices.",
+    "technology_ids": ["tech_kafka", "tech_postgres"],
+    "dependency_ids": ["svc_token_service"]
+  },
+  {
+    "id": "svc_notification",
+    "name": "Notification Dispatcher",
+    "owner_team_id": "team_platform",
+    "repository_id": "repo_infra_kafka",
+    "criticality": "medium",
+    "description": "Consumes billing and payment events to send email receipts and webhook alerts to customers.",
+    "technology_ids": ["tech_kafka"],
+    "dependency_ids": []
+  }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "id": "pr_checkout_kafka_producer",
+    "title": "feat: introduce Kafka event publisher for checkout authorizations (RFC-042)",
+    "url": "https://github.com/acme/checkout-service/pull/314",
+    "author_id": "person_sarah_chen",
+    "merged_at": "2024-04-12T18:45:00Z",
+    "repository_id": "repo_checkout",
+    "implements_decision_id": "dec_kafka_async"
+  },
+  {
+    "id": "pr_token_service_vault_upgrade",
+    "title": "chore: upgrade Vault transit engine key rotation client",
+    "url": "https://github.com/acme/token-service/pull/189",
+    "author_id": "person_marcus_vance",
+    "merged_at": "2024-07-25T14:10:00Z",
+    "repository_id": "repo_token_service",
+    "implements_decision_id": null
+  }
+]

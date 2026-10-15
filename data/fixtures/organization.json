@@ -1,0 +1,6 @@
+{
+  "id": "org_acme_cloud",
+  "name": "Acme SaaS",
+  "domain": "acmecloud.io",
+  "description": "Next-generation B2B SaaS platform delivering real-time billing and payment checkout orchestration."
+}

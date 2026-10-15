@@ -1,0 +1,18 @@
+[
+  {
+    "id": "ticket_pay_1042",
+    "title": "Migrate checkout order settlement to asynchronous Kafka events",
+    "status": "Closed",
+    "url": "https://jira.acmecloud.internal/browse/PAY-1042",
+    "assignee_id": "person_sarah_chen",
+    "implements_decision_id": "dec_kafka_async"
+  },
+  {
+    "id": "ticket_pay_1105",
+    "title": "Implement Vault transit caching in Token Service",
+    "status": "Closed",
+    "url": "https://jira.acmecloud.internal/browse/PAY-1105",
+    "assignee_id": "person_marcus_vance",
+    "implements_decision_id": null
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "id": "repo_checkout",
+    "name": "acme/checkout-service",
+    "url": "https://github.com/acme/checkout-service",
+    "description": "Customer payment checkout UI gateway and order processing engine."
+  },
+  {
+    "id": "repo_token_service",
+    "name": "acme/token-service",
+    "url": "https://github.com/acme/token-service",
+    "description": "High-security card tokenization microservice with Vault-backed encryption."
+  },
+  {
+    "id": "repo_billing",
+    "name": "acme/billing-engine",
+    "url": "https://github.com/acme/billing-engine",
+    "description": "Recurring subscription billing, invoice generation, and revenue recognition system."
+  },
+  {
+    "id": "repo_infra_kafka",
+    "name": "acme/infra-kafka",
+    "url": "https://github.com/acme/infra-kafka",
+    "description": "Terraform, Strimzi Kubernetes operators, and topic provisioning for Kafka clusters."
+  }
+]

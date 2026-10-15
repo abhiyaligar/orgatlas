@@ -1,0 +1,50 @@
+[
+  {
+    "id": "person_sarah_chen",
+    "name": "Sarah Chen",
+    "team_id": "team_payments",
+    "role": "Staff Software Engineer / Payments Lead",
+    "email": "sarah.chen@acmecloud.io",
+    "expertise": ["Distributed Transactions", "Kafka Event Pipelines", "Checkout Architecture", "PCI Compliance"]
+  },
+  {
+    "id": "person_marcus_vance",
+    "name": "Marcus Vance",
+    "team_id": "team_payments",
+    "role": "Senior Software Engineer",
+    "email": "marcus.vance@acmecloud.io",
+    "expertise": ["Token Service", "Key Management", "Vault Integration", "Golang"]
+  },
+  {
+    "id": "person_elena_rostova",
+    "name": "Elena Rostova",
+    "team_id": "team_payments",
+    "role": "Software Engineer II",
+    "email": "elena.rostova@acmecloud.io",
+    "expertise": ["Billing Engine", "Stripe Webhooks", "Subscription State Machines"]
+  },
+  {
+    "id": "person_alex_rivera",
+    "name": "Alex Rivera",
+    "team_id": "team_platform",
+    "role": "Principal Platform Architect",
+    "email": "alex.rivera@acmecloud.io",
+    "expertise": ["Kafka Cluster Operations", "Event Sourcing", "Zero-downtime Failover", "Kubernetes"]
+  },
+  {
+    "id": "person_david_kim",
+    "name": "David Kim",
+    "team_id": "team_platform",
+    "role": "Staff Site Reliability Engineer",
+    "email": "david.kim@acmecloud.io",
+    "expertise": ["Incident Postmortems", "Observability", "Prometheus/Grafana", "Chaos Engineering"]
+  },
+  {
+    "id": "person_priya_sharma",
+    "name": "Priya Sharma",
+    "team_id": "team_platform",
+    "role": "Senior Cloud Infrastructure Engineer",
+    "email": "priya.sharma@acmecloud.io",
+    "expertise": ["Terraform", "AWS Networking", "Redis Clusters", "IAM Policies"]
+  }
+]

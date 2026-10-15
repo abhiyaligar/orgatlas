@@ -1,0 +1,42 @@
+[
+  {
+    "id": "doc_rfp_kafka",
+    "title": "RFC-042: Asynchronous Event-Driven Checkout and Settlement Architecture",
+    "type": "design_doc",
+    "url": "https://wiki.acmecloud.internal/docs/rfc-042-kafka-checkout",
+    "author_id": "person_sarah_chen",
+    "created_at": "2024-03-25T11:00:00Z",
+    "excerpt": "Following the March 2024 flash sale cascade failure, we propose decoupling Checkout Service from Billing and Notification subsystems using an Apache Kafka topic 'payments.checkout.v1'. Checkout publishes an event within 25ms; downstream consumers handle billing and notifications asynchronously with at-least-once semantics.",
+    "documents_entity_ids": ["svc_checkout", "tech_kafka", "dec_kafka_async"]
+  },
+  {
+    "id": "doc_postmortem_2024_03",
+    "title": "Incident Postmortem: SEV-1 Checkout Outage During Spring Flash Sale",
+    "type": "postmortem",
+    "url": "https://wiki.acmecloud.internal/incidents/postmortem-2024-03-15",
+    "author_id": "person_david_kim",
+    "created_at": "2024-03-18T17:30:00Z",
+    "excerpt": "Root Cause: Tight synchronous HTTP coupling between Checkout and Billing. When Billing experienced database lock contention, Checkout HTTP worker threads blocked waiting for responses, cascading into complete 504 Gateway Timeouts across the checkout flow. Action Item: Transition checkout settlement to asynchronous message queues.",
+    "documents_entity_ids": ["inc_2024_03_black_friday", "svc_checkout"]
+  },
+  {
+    "id": "doc_runbook_token_service",
+    "title": "Token Service Operational Runbook & Key Rotation Protocol",
+    "type": "runbook",
+    "url": "https://wiki.acmecloud.internal/runbooks/token-service-ops",
+    "author_id": "person_marcus_vance",
+    "created_at": "2024-06-10T09:00:00Z",
+    "excerpt": "Token Service maintains zero-knowledge tokenization for credit cards. In case of latency spikes during Vault key rotation, verify the Vault agent cache and ensure Token Service rate limits allow high-priority checkout traffic.",
+    "documents_entity_ids": ["svc_token_service"]
+  },
+  {
+    "id": "doc_payments_onboarding_guide",
+    "title": "Payments Team New Engineer Onboarding Handbook",
+    "type": "guide",
+    "url": "https://wiki.acmecloud.internal/teams/payments/onboarding",
+    "author_id": "person_sarah_chen",
+    "created_at": "2024-08-01T10:00:00Z",
+    "excerpt": "Welcome to Payments Core! Your first week focus is understanding our checkout architecture, card tokenization boundaries, and Kafka event contracts. Review RFC-042 and shadow Sarah Chen on on-call rotations.",
+    "documents_entity_ids": ["team_payments", "svc_checkout", "svc_token_service"]
+  }
+]
