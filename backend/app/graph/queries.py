@@ -60,11 +60,13 @@ OPTIONAL MATCH (t:Team)-[:OWNS]->(s)
 OPTIONAL MATCH (p:Person)-[:MEMBER_OF]->(t)
 OPTIONAL MATCH (c:Person)-[:CONTRIBUTED_TO]->(s)
 OPTIONAL MATCH (r:Repository)-[:PRIMARY_IMPLEMENTATION_OF]->(s)
+OPTIONAL MATCH (doc:Document)-[:DOCUMENTS]->(s)
 RETURN s AS service,
        t AS team,
        collect(DISTINCT p) AS team_members,
        collect(DISTINCT c) AS contributors,
-       r AS repository
+       r AS repository,
+       collect(DISTINCT doc) AS documents
 LIMIT 1
 """
 
@@ -79,7 +81,15 @@ RETURN n,
 LIMIT 1
 """
 
-# 6. Search Entities by Name / Substring
+# 7. Fetch Documents by Stable Id List
+GET_DOCUMENTS_BY_IDS = """
+MATCH (doc:Document)
+WHERE doc.id IN $doc_ids
+RETURN doc
+LIMIT 50
+"""
+
+# 8. Search Entities by Name / Substring
 SEARCH_ENTITIES = """
 MATCH (n)
 WHERE (n.name IS NOT NULL AND toLower(n.name) CONTAINS toLower($query))

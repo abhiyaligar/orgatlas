@@ -16,15 +16,15 @@ from app.graph.gateway import GraphGateway, graph_gateway
 logger = logging.getLogger(__name__)
 
 
-def _parse_expertise(value: Any) -> List[str]:
-    """Expertise is stored as a JSON-encoded list on the Person node."""
+def parse_stored_list(value: Any) -> List[str]:
+    """Read a list-valued property that FalkorDB stored as a JSON encoded string."""
     if isinstance(value, list):
         return [safe_str(item) for item in value if item]
     if isinstance(value, str) and value.strip():
         try:
             parsed = json.loads(value)
         except (TypeError, ValueError):
-            logger.debug("Unable to parse expertise payload; treating as empty")
+            logger.debug("Unable to parse stored list payload; treating as empty")
             return []
         return [safe_str(item) for item in parsed] if isinstance(parsed, list) else []
     return []
@@ -47,18 +47,23 @@ class OnboardingContextService:
         team_name = safe_str(data.get("team_name"))
 
         topics = []
+        resource_ids: List[str] = []
         for raw_topic in data.get("topics") or []:
             topic_node = build_graph_node(raw_topic, label="OnboardingTopic")
             if topic_node is None:
                 continue
             properties = topic_node.properties
+            resources = parse_stored_list(properties.get("resources"))
+            for resource_id in resources:
+                if resource_id not in resource_ids:
+                    resource_ids.append(resource_id)
             topics.append(
                 OnboardingTopic(
                     id=topic_node.id,
                     title=safe_str(properties.get("title")),
                     sequence=int(properties.get("sequence") or 0),
                     summary=safe_str(properties.get("summary")),
-                    resources=[safe_str(item) for item in properties.get("resources") or []],
+                    resources=resources,
                 )
             )
         topics.sort(key=lambda topic: topic.sequence)
@@ -93,7 +98,7 @@ class OnboardingContextService:
                     id=person_node.id,
                     name=person_node.name,
                     role=safe_str(properties.get("role")),
-                    expertise=_parse_expertise(properties.get("expertise")),
+                    expertise=parse_stored_list(properties.get("expertise")),
                 )
             )
 
@@ -120,7 +125,9 @@ class OnboardingContextService:
                 )
             )
 
-        reading_list = self.evidence.normalize_citations(data.get("documents") or [], source_type="guide")
+        reading_list = self.evidence.normalize_citations(
+            self.gateway.get_documents_by_ids(resource_ids), source_type="document"
+        )
 
         return OnboardingMapResponse(
             team_id=resolved_team_id,

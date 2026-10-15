@@ -86,7 +86,15 @@ class GraphGateway:
             "team_members": row[2] or [],
             "contributors": row[3] or [],
             "repository": row[4],
+            "documents": row[5] or [],
         }
+
+    def get_documents_by_ids(self, doc_ids: List[str]) -> List[Any]:
+        """Resolve a list of stable document ids to Document nodes."""
+        if not doc_ids:
+            return []
+        rows = self._execute(queries.GET_DOCUMENTS_BY_IDS, {"doc_ids": list(doc_ids)})
+        return [row[0] for row in rows if row and row[0] is not None]
 
     def get_entity_detail(self, entity_id: str) -> Optional[Dict[str, Any]]:
         rows = self._execute(queries.GET_ENTITY_DETAIL, {"entity_id": entity_id})
