@@ -7,6 +7,7 @@
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/coverage/
 
 # Python backend artifacts
 backend/.venv/
@@ -15,6 +16,21 @@ backend/__pycache__/
 backend/**/*.py[cod]
 backend/.pytest_cache/
 backend/.mypy_cache/
+backend/coverage/
+backend/.coverage
+
+# Local/generated demo artifacts; curated fictional fixtures remain tracked
+data/private/
+data/generated/
+data/*.local.*
+
+# Local MCP client configuration and development traces
+.mcp.json
+.mcp.local.json
+*.trace.json
+
+# Locally maintained development playbook
+Docs/DEVELOPMENT_PROCESS.md
 
 # Tooling and operating-system files
 .DS_Store
@@ -22,3 +38,5 @@ Thumbs.db
 .idea/
 .vscode/
 *.log
+
+DEVELOPMENT_PROCEESS.md
