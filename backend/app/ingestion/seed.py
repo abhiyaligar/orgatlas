@@ -48,6 +48,23 @@ def load_fixtures(fixtures_dir: Path) -> Dict[str, Any]:
     return fixtures
 
 
+def cypher_literal(value: Any) -> str:
+    """Render a Python value as a safely escaped OpenCypher literal.
+
+    Fixture text routinely contains apostrophes and semicolons; without
+    escaping them a value terminates its own string literal and the rest of
+    the statement is parsed as a second query.
+    """
+    if value is None:
+        return "''"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    escaped = str(value).replace("\\", "\\\\").replace("'", "\\'")
+    return f"'{escaped}'"
+
+
 def generate_seed_queries(fixtures: Dict[str, Any]) -> List[str]:
     """Generates idempotent OpenCypher queries using MERGE."""
     queries = []
@@ -55,214 +72,214 @@ def generate_seed_queries(fixtures: Dict[str, Any]) -> List[str]:
     # 1. Organization
     org = fixtures["organization"]
     queries.append(
-        f"MERGE (o:Organization {{id: '{org['id']}'}}) "
-        f"SET o.name = '{org['name']}', o.domain = '{org.get('domain', '')}', o.description = '{org.get('description', '')}'"
+        f"MERGE (o:Organization {{id: {cypher_literal(org['id'])}}}) "
+        f"SET o.name = {cypher_literal(org['name'])}, o.domain = {cypher_literal(org.get('domain'))}, "
+        f"o.description = {cypher_literal(org.get('description'))}"
     )
 
     # 2. Teams & HAS_TEAM
     for team in fixtures["teams"]:
         queries.append(
-            f"MERGE (t:Team {{id: '{team['id']}'}}) "
-            f"SET t.name = '{team['name']}', t.mission = '{team.get('mission', '')}'"
+            f"MERGE (t:Team {{id: {cypher_literal(team['id'])}}}) "
+            f"SET t.name = {cypher_literal(team['name'])}, t.mission = {cypher_literal(team.get('mission'))}"
         )
         queries.append(
-            f"MATCH (o:Organization {{id: '{team['organization_id']}'}}), (t:Team {{id: '{team['id']}'}}) "
-            f"MERGE (o)-[:HAS_TEAM]->(t)"
+            f"MATCH (o:Organization {{id: {cypher_literal(team['organization_id'])}}}), "
+            f"(t:Team {{id: {cypher_literal(team['id'])}}}) MERGE (o)-[:HAS_TEAM]->(t)"
         )
 
     # 3. People & MEMBER_OF
     for person in fixtures["people"]:
-        expertise_str = json.dumps(person.get("expertise", []))
         queries.append(
-            f"MERGE (p:Person {{id: '{person['id']}'}}) "
-            f"SET p.name = '{person['name']}', p.role = '{person.get('role', '')}', "
-            f"p.email = '{person.get('email', '')}', p.expertise = '{expertise_str}'"
+            f"MERGE (p:Person {{id: {cypher_literal(person['id'])}}}) "
+            f"SET p.name = {cypher_literal(person['name'])}, p.role = {cypher_literal(person.get('role'))}, "
+            f"p.email = {cypher_literal(person.get('email'))}, "
+            f"p.expertise = {cypher_literal(json.dumps(person.get('expertise', [])))}"
         )
         queries.append(
-            f"MATCH (p:Person {{id: '{person['id']}'}}), (t:Team {{id: '{person['team_id']}'}}) "
-            f"MERGE (p)-[:MEMBER_OF]->(t)"
+            f"MATCH (p:Person {{id: {cypher_literal(person['id'])}}}), "
+            f"(t:Team {{id: {cypher_literal(person['team_id'])}}}) MERGE (p)-[:MEMBER_OF]->(t)"
         )
 
     # 4. Technologies
     for tech in fixtures["technologies"]:
         queries.append(
-            f"MERGE (tech:Technology {{id: '{tech['id']}'}}) "
-            f"SET tech.name = '{tech['name']}', tech.category = '{tech.get('category', '')}', tech.description = '{tech.get('description', '')}'"
+            f"MERGE (tech:Technology {{id: {cypher_literal(tech['id'])}}}) "
+            f"SET tech.name = {cypher_literal(tech['name'])}, tech.category = {cypher_literal(tech.get('category'))}, "
+            f"tech.description = {cypher_literal(tech.get('description'))}"
         )
 
     # 5. Repositories
     for repo in fixtures["repositories"]:
         queries.append(
-            f"MERGE (r:Repository {{id: '{repo['id']}'}}) "
-            f"SET r.name = '{repo['name']}', r.url = '{repo.get('url', '')}', r.description = '{repo.get('description', '')}'"
+            f"MERGE (r:Repository {{id: {cypher_literal(repo['id'])}}}) "
+            f"SET r.name = {cypher_literal(repo['name'])}, r.url = {cypher_literal(repo.get('url'))}, "
+            f"r.description = {cypher_literal(repo.get('description'))}"
         )
 
     # 6. Services, OWNS, USES, PRIMARY_IMPLEMENTATION_OF, DEPENDS_ON
     for svc in fixtures["services"]:
         queries.append(
-            f"MERGE (s:Service {{id: '{svc['id']}'}}) "
-            f"SET s.name = '{svc['name']}', s.description = '{svc.get('description', '')}', s.criticality = '{svc.get('criticality', '')}'"
+            f"MERGE (s:Service {{id: {cypher_literal(svc['id'])}}}) "
+            f"SET s.name = {cypher_literal(svc['name'])}, s.description = {cypher_literal(svc.get('description'))}, "
+            f"s.criticality = {cypher_literal(svc.get('criticality'))}"
         )
-        # OWNS
         queries.append(
-            f"MATCH (t:Team {{id: '{svc['owner_team_id']}'}}), (s:Service {{id: '{svc['id']}'}}) "
-            f"MERGE (t)-[:OWNS]->(s)"
+            f"MATCH (t:Team {{id: {cypher_literal(svc['owner_team_id'])}}}), "
+            f"(s:Service {{id: {cypher_literal(svc['id'])}}}) MERGE (t)-[:OWNS]->(s)"
         )
-        # PRIMARY_IMPLEMENTATION_OF
         queries.append(
-            f"MATCH (r:Repository {{id: '{svc['repository_id']}'}}), (s:Service {{id: '{svc['id']}'}}) "
-            f"MERGE (r)-[:PRIMARY_IMPLEMENTATION_OF]->(s)"
+            f"MATCH (r:Repository {{id: {cypher_literal(svc['repository_id'])}}}), "
+            f"(s:Service {{id: {cypher_literal(svc['id'])}}}) MERGE (r)-[:PRIMARY_IMPLEMENTATION_OF]->(s)"
         )
-        # USES technology
         for tech_id in svc.get("technology_ids", []):
             queries.append(
-                f"MATCH (s:Service {{id: '{svc['id']}'}}), (tech:Technology {{id: '{tech_id}'}}) "
-                f"MERGE (s)-[:USES]->(tech)"
+                f"MATCH (s:Service {{id: {cypher_literal(svc['id'])}}}), "
+                f"(tech:Technology {{id: {cypher_literal(tech_id)}}}) MERGE (s)-[:USES]->(tech)"
             )
-        # DEPENDS_ON services
         for dep_id in svc.get("dependency_ids", []):
             queries.append(
-                f"MATCH (s:Service {{id: '{svc['id']}'}}), (dep:Service {{id: '{dep_id}'}}) "
-                f"MERGE (s)-[:DEPENDS_ON]->(dep)"
+                f"MATCH (s:Service {{id: {cypher_literal(svc['id'])}}}), "
+                f"(dep:Service {{id: {cypher_literal(dep_id)}}}) MERGE (s)-[:DEPENDS_ON]->(dep)"
             )
 
     # 7. Incidents & AFFECTS
     for inc in fixtures["incidents"]:
         queries.append(
-            f"MERGE (i:Incident {{id: '{inc['id']}'}}) "
-            f"SET i.title = '{inc['title']}', i.severity = '{inc.get('severity', '')}', "
-            f"i.summary = '{inc.get('summary', '')}', i.occurred_at = '{inc.get('occurred_at', '')}'"
+            f"MERGE (i:Incident {{id: {cypher_literal(inc['id'])}}}) "
+            f"SET i.title = {cypher_literal(inc['title'])}, i.severity = {cypher_literal(inc.get('severity'))}, "
+            f"i.summary = {cypher_literal(inc.get('summary'))}, i.occurred_at = {cypher_literal(inc.get('occurred_at'))}"
         )
         for aff_svc_id in inc.get("affected_service_ids", []):
             queries.append(
-                f"MATCH (i:Incident {{id: '{inc['id']}'}}), (s:Service {{id: '{aff_svc_id}'}}) "
-                f"MERGE (i)-[:AFFECTS]->(s)"
+                f"MATCH (i:Incident {{id: {cypher_literal(inc['id'])}}}), "
+                f"(s:Service {{id: {cypher_literal(aff_svc_id)}}}) MERGE (i)-[:AFFECTS]->(s)"
             )
 
     # 8. Decisions, DECIDED_BY, AFFECTS, LED_TO
     for dec in fixtures["decisions"]:
         queries.append(
-            f"MERGE (d:Decision {{id: '{dec['id']}'}}) "
-            f"SET d.title = '{dec['title']}', d.status = '{dec.get('status', '')}', "
-            f"d.summary = '{dec.get('summary', '')}', d.alternatives = '{dec.get('alternatives', '')}', "
-            f"d.decided_at = '{dec.get('decided_at', '')}'"
+            f"MERGE (d:Decision {{id: {cypher_literal(dec['id'])}}}) "
+            f"SET d.title = {cypher_literal(dec['title'])}, d.status = {cypher_literal(dec.get('status'))}, "
+            f"d.summary = {cypher_literal(dec.get('summary'))}, "
+            f"d.alternatives = {cypher_literal(dec.get('alternatives'))}, "
+            f"d.decided_at = {cypher_literal(dec.get('decided_at'))}"
         )
         for person_id in dec.get("decided_by_person_ids", []):
             queries.append(
-                f"MATCH (d:Decision {{id: '{dec['id']}'}}), (p:Person {{id: '{person_id}'}}) "
-                f"MERGE (d)-[:DECIDED_BY]->(p)"
+                f"MATCH (d:Decision {{id: {cypher_literal(dec['id'])}}}), "
+                f"(p:Person {{id: {cypher_literal(person_id)}}}) MERGE (d)-[:DECIDED_BY]->(p)"
             )
         for team_id in dec.get("decided_by_team_ids", []):
             queries.append(
-                f"MATCH (d:Decision {{id: '{dec['id']}'}}), (t:Team {{id: '{team_id}'}}) "
-                f"MERGE (d)-[:DECIDED_BY]->(t)"
+                f"MATCH (d:Decision {{id: {cypher_literal(dec['id'])}}}), "
+                f"(t:Team {{id: {cypher_literal(team_id)}}}) MERGE (d)-[:DECIDED_BY]->(t)"
             )
         for aff_svc in dec.get("affected_service_ids", []):
             queries.append(
-                f"MATCH (d:Decision {{id: '{dec['id']}'}}), (s:Service {{id: '{aff_svc}'}}) "
-                f"MERGE (d)-[:AFFECTS]->(s)"
+                f"MATCH (d:Decision {{id: {cypher_literal(dec['id'])}}}), "
+                f"(s:Service {{id: {cypher_literal(aff_svc)}}}) MERGE (d)-[:AFFECTS]->(s)"
             )
 
     # Link Incidents to Decisions (LED_TO)
     for inc in fixtures["incidents"]:
         if inc.get("led_to_decision_id"):
             queries.append(
-                f"MATCH (i:Incident {{id: '{inc['id']}'}}), (d:Decision {{id: '{inc['led_to_decision_id']}'}}) "
-                f"MERGE (i)-[:LED_TO]->(d)"
+                f"MATCH (i:Incident {{id: {cypher_literal(inc['id'])}}}), "
+                f"(d:Decision {{id: {cypher_literal(inc['led_to_decision_id'])}}}) MERGE (i)-[:LED_TO]->(d)"
             )
 
     # 9. Documents, DOCUMENTS, SUPPORTED_BY
     for doc in fixtures["documents"]:
         queries.append(
-            f"MERGE (doc:Document {{id: '{doc['id']}'}}) "
-            f"SET doc.title = '{doc['title']}', doc.type = '{doc.get('type', '')}', "
-            f"doc.url = '{doc.get('url', '')}', doc.excerpt = '{doc.get('excerpt', '')}', "
-            f"doc.created_at = '{doc.get('created_at', '')}'"
+            f"MERGE (doc:Document {{id: {cypher_literal(doc['id'])}}}) "
+            f"SET doc.title = {cypher_literal(doc['title'])}, doc.type = {cypher_literal(doc.get('type'))}, "
+            f"doc.url = {cypher_literal(doc.get('url'))}, doc.excerpt = {cypher_literal(doc.get('excerpt'))}, "
+            f"doc.created_at = {cypher_literal(doc.get('created_at'))}"
         )
         if doc.get("author_id"):
             queries.append(
-                f"MATCH (p:Person {{id: '{doc['author_id']}'}}), (doc:Document {{id: '{doc['id']}'}}) "
-                f"MERGE (p)-[:AUTHORED]->(doc)"
+                f"MATCH (p:Person {{id: {cypher_literal(doc['author_id'])}}}), "
+                f"(doc:Document {{id: {cypher_literal(doc['id'])}}}) MERGE (p)-[:AUTHORED]->(doc)"
             )
         for entity_id in doc.get("documents_entity_ids", []):
             queries.append(
-                f"MATCH (doc:Document {{id: '{doc['id']}'}}), (n {{id: '{entity_id}'}}) "
-                f"MERGE (doc)-[:DOCUMENTS]->(n)"
+                f"MATCH (doc:Document {{id: {cypher_literal(doc['id'])}}}), "
+                f"(n {{id: {cypher_literal(entity_id)}}}) MERGE (doc)-[:DOCUMENTS]->(n)"
             )
 
     # Decision SUPPORTED_BY Documents
     for dec in fixtures["decisions"]:
         for doc_id in dec.get("supported_by_doc_ids", []):
             queries.append(
-                f"MATCH (d:Decision {{id: '{dec['id']}'}}), (doc:Document {{id: '{doc_id}'}}) "
-                f"MERGE (d)-[:SUPPORTED_BY]->(doc)"
+                f"MATCH (d:Decision {{id: {cypher_literal(dec['id'])}}}), "
+                f"(doc:Document {{id: {cypher_literal(doc_id)}}}) MERGE (d)-[:SUPPORTED_BY]->(doc)"
             )
 
     # 10. Pull Requests & IMPLEMENTS
     for pr in fixtures["pull_requests"]:
         queries.append(
-            f"MERGE (pr:PullRequest {{id: '{pr['id']}'}}) "
-            f"SET pr.title = '{pr['title']}', pr.url = '{pr.get('url', '')}', pr.merged_at = '{pr.get('merged_at', '')}'"
+            f"MERGE (pr:PullRequest {{id: {cypher_literal(pr['id'])}}}) "
+            f"SET pr.title = {cypher_literal(pr['title'])}, pr.url = {cypher_literal(pr.get('url'))}, "
+            f"pr.merged_at = {cypher_literal(pr.get('merged_at'))}"
         )
         if pr.get("author_id"):
             queries.append(
-                f"MATCH (p:Person {{id: '{pr['author_id']}'}}), (pr:PullRequest {{id: '{pr['id']}'}}) "
-                f"MERGE (p)-[:AUTHORED]->(pr)"
+                f"MATCH (p:Person {{id: {cypher_literal(pr['author_id'])}}}), "
+                f"(pr:PullRequest {{id: {cypher_literal(pr['id'])}}}) MERGE (p)-[:AUTHORED]->(pr)"
             )
         if pr.get("repository_id"):
             queries.append(
-                f"MATCH (pr:PullRequest {{id: '{pr['id']}'}}), (r:Repository {{id: '{pr['repository_id']}'}}) "
-                f"MERGE (pr)-[:TARGETS_REPOSITORY]->(r)"
+                f"MATCH (pr:PullRequest {{id: {cypher_literal(pr['id'])}}}), "
+                f"(r:Repository {{id: {cypher_literal(pr['repository_id'])}}}) MERGE (pr)-[:TARGETS_REPOSITORY]->(r)"
             )
         if pr.get("implements_decision_id"):
             queries.append(
-                f"MATCH (pr:PullRequest {{id: '{pr['id']}'}}), (d:Decision {{id: '{pr['implements_decision_id']}'}}) "
-                f"MERGE (pr)-[:IMPLEMENTS]->(d)"
+                f"MATCH (pr:PullRequest {{id: {cypher_literal(pr['id'])}}}), "
+                f"(d:Decision {{id: {cypher_literal(pr['implements_decision_id'])}}}) MERGE (pr)-[:IMPLEMENTS]->(d)"
             )
 
     # 11. Tickets & IMPLEMENTS
     for ticket in fixtures["tickets"]:
         queries.append(
-            f"MERGE (tk:Ticket {{id: '{ticket['id']}'}}) "
-            f"SET tk.title = '{ticket['title']}', tk.status = '{ticket.get('status', '')}', tk.url = '{ticket.get('url', '')}'"
+            f"MERGE (tk:Ticket {{id: {cypher_literal(ticket['id'])}}}) "
+            f"SET tk.title = {cypher_literal(ticket['title'])}, tk.status = {cypher_literal(ticket.get('status'))}, "
+            f"tk.url = {cypher_literal(ticket.get('url'))}"
         )
         if ticket.get("implements_decision_id"):
             queries.append(
-                f"MATCH (tk:Ticket {{id: '{ticket['id']}'}}), (d:Decision {{id: '{ticket['implements_decision_id']}'}}) "
-                f"MERGE (tk)-[:IMPLEMENTS]->(d)"
+                f"MATCH (tk:Ticket {{id: {cypher_literal(ticket['id'])}}}), "
+                f"(d:Decision {{id: {cypher_literal(ticket['implements_decision_id'])}}}) MERGE (tk)-[:IMPLEMENTS]->(d)"
             )
 
     # 12. Onboarding Topics & RECOMMENDED_FOR & LEARN_ABOUT
     for topic in fixtures["onboarding_topics"]:
-        resources_str = json.dumps(topic.get("resources", []))
         queries.append(
-            f"MERGE (ot:OnboardingTopic {{id: '{topic['id']}'}}) "
-            f"SET ot.title = '{topic['title']}', ot.sequence = {topic.get('sequence', 1)}, "
-            f"ot.summary = '{topic.get('summary', '')}', ot.resources = '{resources_str}'"
+            f"MERGE (ot:OnboardingTopic {{id: {cypher_literal(topic['id'])}}}) "
+            f"SET ot.title = {cypher_literal(topic['title'])}, ot.sequence = {cypher_literal(topic.get('sequence', 1))}, "
+            f"ot.summary = {cypher_literal(topic.get('summary'))}, "
+            f"ot.resources = {cypher_literal(json.dumps(topic.get('resources', [])))}"
         )
         queries.append(
-            f"MATCH (ot:OnboardingTopic {{id: '{topic['id']}'}}), (t:Team {{id: '{topic['team_id']}'}}) "
-            f"MERGE (ot)-[:RECOMMENDED_FOR]->(t)"
+            f"MATCH (ot:OnboardingTopic {{id: {cypher_literal(topic['id'])}}}), "
+            f"(t:Team {{id: {cypher_literal(topic['team_id'])}}}) MERGE (ot)-[:RECOMMENDED_FOR]->(t)"
         )
         for entity_id in topic.get("learn_about_entity_ids", []):
             queries.append(
-                f"MATCH (ot:OnboardingTopic {{id: '{topic['id']}'}}), (n {{id: '{entity_id}'}}) "
-                f"MERGE (ot)-[:LEARN_ABOUT]->(n)"
+                f"MATCH (ot:OnboardingTopic {{id: {cypher_literal(topic['id'])}}}), "
+                f"(n {{id: {cypher_literal(entity_id)}}}) MERGE (ot)-[:LEARN_ABOUT]->(n)"
             )
 
     # Add CONTRIBUTED_TO connections for demo persons
-    queries.append(
-        "MATCH (p:Person {id: 'person_sarah_chen'}), (s:Service {id: 'svc_checkout'}) "
-        "MERGE (p)-[:CONTRIBUTED_TO]->(s)"
-    )
-    queries.append(
-        "MATCH (p:Person {id: 'person_marcus_vance'}), (s:Service {id: 'svc_token_service'}) "
-        "MERGE (p)-[:CONTRIBUTED_TO]->(s)"
-    )
-    queries.append(
-        "MATCH (p:Person {id: 'person_alex_rivera'}), (s:Service {id: 'svc_checkout'}) "
-        "MERGE (p)-[:CONTRIBUTED_TO]->(s)"
-    )
+    for person_id, svc_id in (
+        ("person_sarah_chen", "svc_checkout"),
+        ("person_marcus_vance", "svc_token_service"),
+        ("person_alex_rivera", "svc_checkout"),
+    ):
+        queries.append(
+            f"MATCH (p:Person {{id: {cypher_literal(person_id)}}}), "
+            f"(s:Service {{id: {cypher_literal(svc_id)}}}) MERGE (p)-[:CONTRIBUTED_TO]->(s)"
+        )
 
     return queries
 
