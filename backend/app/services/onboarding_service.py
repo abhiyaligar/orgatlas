@@ -1,53 +1,41 @@
+import json
 import logging
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
-from app.graph.gateway import GraphGateway, graph_gateway
 from app.api.schemas import (
     OnboardingMapResponse,
     OnboardingTopic,
     OwnedService,
     PersonSummary,
-    Citation,
     EvidenceSubgraph,
-    GraphNode,
-    GraphEdge,
 )
+from app.evidence.formatter import build_graph_edge, build_graph_node, render_path, safe_str
+from app.evidence.service import EvidenceService
+from app.graph.gateway import GraphGateway, graph_gateway
 
 logger = logging.getLogger(__name__)
 
 
-def _safe_str(val) -> str:
-    if val is None:
-        return ""
-    return str(val)
-
-
-def _extract_node_props(node) -> dict:
-    """Safely extract properties from a FalkorDB node object."""
-    if node is None:
-        return {}
-    if hasattr(node, "properties"):
-        return node.properties or {}
-    if isinstance(node, dict):
-        return node
-    return {}
-
-
-def _node_to_graph_node(node, label: str) -> GraphNode:
-    props = _extract_node_props(node)
-    return GraphNode(
-        id=_safe_str(props.get("id", "")),
-        label=label,
-        name=_safe_str(props.get("name", props.get("title", ""))),
-        properties=props,
-    )
+def _parse_expertise(value: Any) -> List[str]:
+    """Expertise is stored as a JSON-encoded list on the Person node."""
+    if isinstance(value, list):
+        return [safe_str(item) for item in value if item]
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError):
+            logger.debug("Unable to parse expertise payload; treating as empty")
+            return []
+        return [safe_str(item) for item in parsed] if isinstance(parsed, list) else []
+    return []
 
 
 class OnboardingContextService:
     """Retrieves team onboarding context: topics, services, people, and reading list."""
 
-    def __init__(self, gateway: GraphGateway = graph_gateway):
+    def __init__(self, gateway: GraphGateway = graph_gateway, evidence: Optional[EvidenceService] = None):
         self.gateway = gateway
+        self.evidence = evidence or EvidenceService()
 
     def get_onboarding_map(self, team_id: str) -> Optional[OnboardingMapResponse]:
         data = self.gateway.get_onboarding_context(team_id)
@@ -55,85 +43,92 @@ class OnboardingContextService:
             logger.warning("No onboarding data found for team: %s", team_id)
             return None
 
-        # Build topics
+        resolved_team_id = safe_str(data.get("team_id"))
+        team_name = safe_str(data.get("team_name"))
+
         topics = []
-        for raw_topic in (data.get("topics") or []):
-            props = _extract_node_props(raw_topic)
-            if props.get("id"):
-                topics.append(OnboardingTopic(
-                    id=_safe_str(props.get("id")),
-                    title=_safe_str(props.get("title")),
-                    sequence=int(props.get("sequence", 1)),
-                    summary=_safe_str(props.get("summary")),
-                    resources=[],
-                ))
-        topics.sort(key=lambda t: t.sequence)
+        for raw_topic in data.get("topics") or []:
+            topic_node = build_graph_node(raw_topic, label="OnboardingTopic")
+            if topic_node is None:
+                continue
+            properties = topic_node.properties
+            topics.append(
+                OnboardingTopic(
+                    id=topic_node.id,
+                    title=safe_str(properties.get("title")),
+                    sequence=int(properties.get("sequence") or 0),
+                    summary=safe_str(properties.get("summary")),
+                    resources=[safe_str(item) for item in properties.get("resources") or []],
+                )
+            )
+        topics.sort(key=lambda topic: topic.sequence)
 
-        # Build owned services
         owned_services = []
-        for raw_svc in (data.get("services") or []):
-            props = _extract_node_props(raw_svc)
-            if props.get("id"):
-                owned_services.append(OwnedService(
-                    id=_safe_str(props.get("id")),
-                    name=_safe_str(props.get("name")),
-                    description=_safe_str(props.get("description")),
-                    criticality=_safe_str(props.get("criticality", "medium")),
-                    maintainers=[],
-                ))
+        for raw_service in data.get("services") or []:
+            service_node = build_graph_node(raw_service, label="Service")
+            if service_node is None:
+                continue
+            properties = service_node.properties
+            owned_services.append(
+                OwnedService(
+                    id=service_node.id,
+                    name=service_node.name,
+                    description=safe_str(properties.get("description")),
+                    criticality=safe_str(properties.get("criticality") or "medium"),
+                    repository_url=properties.get("url"),
+                    maintainers=[safe_str(item) for item in properties.get("maintainers") or []],
+                )
+            )
 
-        # Build people to meet
         people_to_meet = []
         seen_people = set()
-        for raw_person in (data.get("people") or []):
-            props = _extract_node_props(raw_person)
-            person_id = props.get("id")
-            if person_id and person_id not in seen_people:
-                seen_people.add(person_id)
-                expertise_raw = props.get("expertise", "[]")
-                try:
-                    import json
-                    expertise = json.loads(expertise_raw) if isinstance(expertise_raw, str) else expertise_raw
-                except Exception:
-                    expertise = []
-                people_to_meet.append(PersonSummary(
-                    id=_safe_str(person_id),
-                    name=_safe_str(props.get("name")),
-                    role=_safe_str(props.get("role")),
-                    expertise=expertise,
-                ))
+        for raw_person in data.get("people") or []:
+            person_node = build_graph_node(raw_person, label="Person")
+            if person_node is None or person_node.id in seen_people:
+                continue
+            seen_people.add(person_node.id)
+            properties = person_node.properties
+            people_to_meet.append(
+                PersonSummary(
+                    id=person_node.id,
+                    name=person_node.name,
+                    role=safe_str(properties.get("role")),
+                    expertise=_parse_expertise(properties.get("expertise")),
+                )
+            )
 
-        # Build minimal evidence subgraph
-        nodes = []
-        edges = []
-        if data.get("team_id"):
-            nodes.append(GraphNode(
-                id=data["team_id"],
-                label="Team",
-                name=_safe_str(data.get("team_name")),
-                properties={},
-            ))
-        for svc in owned_services:
-            nodes.append(GraphNode(id=svc.id, label="Service", name=svc.name, properties={}))
-            edges.append(GraphEdge(
-                id=f"team_owns_{svc.id}",
-                source=data["team_id"],
-                target=svc.id,
-                type="OWNS",
-                properties={},
-            ))
+        nodes: List = []
+        edges: List = []
+        paths: List[str] = []
+        if resolved_team_id:
+            nodes.append(
+                build_graph_node({"id": resolved_team_id, "name": team_name}, label="Team")
+            )
+        for service in owned_services:
+            nodes.append(build_graph_node({"id": service.id, "name": service.name}, label="Service"))
+            edges.append(
+                build_graph_edge(
+                    f"team_owns_{service.id}", resolved_team_id, service.id, "OWNS"
+                )
+            )
+        if owned_services:
+            paths.append(
+                render_path(
+                    team_name,
+                    "Team",
+                    [("OWNS", ", ".join(service.name for service in owned_services), "Services")],
+                )
+            )
 
-        paths = [
-            f"Team '{data.get('team_name')}' owns {len(owned_services)} service(s) and has {len(people_to_meet)} member(s)"
-        ]
+        reading_list = self.evidence.normalize_citations(data.get("documents") or [], source_type="guide")
 
         return OnboardingMapResponse(
-            team_id=_safe_str(data.get("team_id")),
-            team_name=_safe_str(data.get("team_name")),
-            mission=_safe_str(data.get("team_mission")),
+            team_id=resolved_team_id,
+            team_name=team_name,
+            mission=safe_str(data.get("team_mission")),
             topics=topics,
             owned_services=owned_services,
             people_to_meet=people_to_meet,
-            reading_list=[],
+            reading_list=reading_list,
             graph=EvidenceSubgraph(nodes=nodes, edges=edges, paths=paths),
         )

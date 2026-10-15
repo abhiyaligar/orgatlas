@@ -1,86 +1,111 @@
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
+from app.api.schemas import EvidenceSubgraph
+from app.evidence.formatter import (
+    build_graph_edge,
+    build_graph_node,
+    extract_properties,
+    render_path,
+    safe_str,
+)
+from app.evidence.service import EvidenceService
 from app.graph.gateway import GraphGateway, graph_gateway
-from app.api.schemas import EvidenceSubgraph, GraphNode, GraphEdge, Citation
 
 logger = logging.getLogger(__name__)
-
-
-def _safe_str(val) -> str:
-    return "" if val is None else str(val)
-
-
-def _extract_node_props(node) -> dict:
-    if node is None:
-        return {}
-    if hasattr(node, "properties"):
-        return node.properties or {}
-    if isinstance(node, dict):
-        return node
-    return {}
 
 
 class OwnershipService:
     """Returns accountable team, maintainers, contributors and repository for a service."""
 
-    def __init__(self, gateway: GraphGateway = graph_gateway):
+    def __init__(self, gateway: GraphGateway = graph_gateway, evidence: Optional[EvidenceService] = None):
         self.gateway = gateway
+        self.evidence = evidence or EvidenceService()
 
     def get_ownership(self, service_id: str) -> Optional[Dict[str, Any]]:
         data = self.gateway.get_service_ownership(service_id)
         if not data:
+            logger.warning("No ownership data found for service: %s", service_id)
             return None
 
-        nodes: List[GraphNode] = []
-        edges: List[GraphEdge] = []
+        service_node = build_graph_node(data.get("service"), label="Service")
+        if service_node is None:
+            logger.warning("Ownership record is missing a stable service id: %s", service_id)
+            return None
+
+        nodes: List = [service_node]
+        edges: List = []
         paths: List[str] = []
 
-        svc_props = _extract_node_props(data.get("service"))
-        svc_id = _safe_str(svc_props.get("id"))
-        svc_name = _safe_str(svc_props.get("name"))
-        nodes.append(GraphNode(id=svc_id, label="Service", name=svc_name, properties=svc_props))
+        team_node = build_graph_node(data.get("team"), label="Team")
+        if team_node is not None:
+            nodes.append(team_node)
+            edges.append(build_graph_edge(f"owns_{service_node.id}", team_node.id, service_node.id, "OWNS"))
+            paths.append(render_path(team_node.name, team_node.label, [("OWNS", service_node.name, service_node.label)]))
 
-        team_props = _extract_node_props(data.get("team"))
-        team_id = _safe_str(team_props.get("id"))
-        team_name = _safe_str(team_props.get("name"))
-        if team_id:
-            nodes.append(GraphNode(id=team_id, label="Team", name=team_name, properties=team_props))
-            edges.append(GraphEdge(id=f"owns_{svc_id}", source=team_id, target=svc_id, type="OWNS", properties={}))
-            paths.append(f"Team '{team_name}' → OWNS → Service '{svc_name}'")
-
+        member_ids = set()
         members = []
-        for raw in (data.get("team_members") or []):
-            props = _extract_node_props(raw)
-            person_id = _safe_str(props.get("id"))
-            if person_id:
-                members.append({"id": person_id, "name": props.get("name"), "role": props.get("role")})
-                nodes.append(GraphNode(id=person_id, label="Person", name=_safe_str(props.get("name")), properties=props))
-                edges.append(GraphEdge(id=f"member_{person_id}_{team_id}", source=person_id, target=team_id, type="MEMBER_OF", properties={}))
+        for raw_member in data.get("team_members") or []:
+            member_node = build_graph_node(raw_member, label="Person")
+            if member_node is None:
+                continue
+            member_ids.add(member_node.id)
+            properties = extract_properties(raw_member)
+            members.append(
+                {"id": member_node.id, "name": member_node.name, "role": safe_str(properties.get("role"))}
+            )
+            nodes.append(member_node)
+            if team_node is not None:
+                edges.append(
+                    build_graph_edge(
+                        f"member_{member_node.id}_{team_node.id}", member_node.id, team_node.id, "MEMBER_OF"
+                    )
+                )
 
         contributors = []
-        for raw in (data.get("contributors") or []):
-            props = _extract_node_props(raw)
-            person_id = _safe_str(props.get("id"))
-            if person_id:
-                contributors.append({"id": person_id, "name": props.get("name"), "role": props.get("role")})
-                if person_id not in {m["id"] for m in members}:
-                    nodes.append(GraphNode(id=person_id, label="Person", name=_safe_str(props.get("name")), properties=props))
-                edges.append(GraphEdge(id=f"contrib_{person_id}_{svc_id}", source=person_id, target=svc_id, type="CONTRIBUTED_TO", properties={}))
+        for raw_contributor in data.get("contributors") or []:
+            contributor_node = build_graph_node(raw_contributor, label="Person")
+            if contributor_node is None:
+                continue
+            properties = extract_properties(raw_contributor)
+            contributors.append(
+                {"id": contributor_node.id, "name": contributor_node.name, "role": safe_str(properties.get("role"))}
+            )
+            if contributor_node.id not in member_ids:
+                nodes.append(contributor_node)
+            edges.append(
+                build_graph_edge(
+                    f"contrib_{contributor_node.id}_{service_node.id}",
+                    contributor_node.id,
+                    service_node.id,
+                    "CONTRIBUTED_TO",
+                )
+            )
 
-        repo_props = _extract_node_props(data.get("repository"))
-        repo_id = _safe_str(repo_props.get("id"))
-        if repo_id:
-            nodes.append(GraphNode(id=repo_id, label="Repository", name=_safe_str(repo_props.get("name")), properties=repo_props))
-            edges.append(GraphEdge(id=f"repo_{repo_id}_{svc_id}", source=repo_id, target=svc_id, type="PRIMARY_IMPLEMENTATION_OF", properties={}))
+        repository_node = build_graph_node(data.get("repository"), label="Repository")
+        repository_url = None
+        if repository_node is not None:
+            nodes.append(repository_node)
+            edges.append(
+                build_graph_edge(
+                    f"repo_{repository_node.id}_{service_node.id}",
+                    repository_node.id,
+                    service_node.id,
+                    "PRIMARY_IMPLEMENTATION_OF",
+                )
+            )
+            repository_url = repository_node.properties.get("url")
+
+        citations = self.evidence.normalize_citations(data.get("documents") or [], source_type="document")
 
         return {
-            "service_id": svc_id,
-            "service_name": svc_name,
-            "owner_team": team_name,
-            "owner_team_id": team_id,
+            "service_id": service_node.id,
+            "service_name": service_node.name,
+            "owner_team": team_node.name if team_node else "",
+            "owner_team_id": team_node.id if team_node else "",
             "team_members": members,
             "contributors": contributors,
-            "repository_url": repo_props.get("url"),
+            "repository_url": repository_url,
+            "citations": citations,
             "graph": EvidenceSubgraph(nodes=nodes, edges=edges, paths=paths),
         }

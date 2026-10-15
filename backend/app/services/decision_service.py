@@ -1,112 +1,88 @@
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
-from app.graph.gateway import GraphGateway, graph_gateway
-from app.api.schemas import (
-    AskQuestionResponse,
-    Citation,
-    EvidenceSubgraph,
-    GraphNode,
-    GraphEdge,
+from app.api.schemas import EvidenceSubgraph
+from app.evidence.formatter import (
+    build_graph_edge,
+    build_graph_node,
+    display_name,
+    extract_properties,
+    render_path,
+    safe_str,
 )
+from app.evidence.service import EvidenceService
+from app.graph.gateway import GraphGateway, graph_gateway
 
 logger = logging.getLogger(__name__)
-
-
-def _safe_str(val) -> str:
-    return "" if val is None else str(val)
-
-
-def _extract_node_props(node) -> dict:
-    if node is None:
-        return {}
-    if hasattr(node, "properties"):
-        return node.properties or {}
-    if isinstance(node, dict):
-        return node
-    return {}
 
 
 class DecisionTraceService:
     """Traverses a decision node with evidence, deciders, incidents, and sources."""
 
-    def __init__(self, gateway: GraphGateway = graph_gateway):
+    def __init__(self, gateway: GraphGateway = graph_gateway, evidence: Optional[EvidenceService] = None):
         self.gateway = gateway
+        self.evidence = evidence or EvidenceService()
 
     def trace_decision(self, decision_id: str) -> Optional[Dict[str, Any]]:
         data = self.gateway.get_decision_trace(decision_id)
         if not data:
+            logger.warning("No decision node found for id: %s", decision_id)
             return None
 
-        dec_props = _extract_node_props(data.get("decision"))
-        nodes: List[GraphNode] = []
-        edges: List[GraphEdge] = []
-        citations: List[Citation] = []
+        decision_properties = extract_properties(data.get("decision"))
+        decision_node = build_graph_node(data.get("decision"), label="Decision")
+        if decision_node is None:
+            logger.warning("Decision record is missing a stable id: %s", decision_id)
+            return None
+
+        nodes: List = [decision_node]
+        edges: List = []
         paths: List[str] = []
 
-        # Decision node
-        dec_node = GraphNode(
-            id=_safe_str(dec_props.get("id")),
-            label="Decision",
-            name=_safe_str(dec_props.get("title")),
-            properties=dec_props,
-        )
-        nodes.append(dec_node)
+        for document in data.get("documents") or []:
+            document_node = build_graph_node(document, label="Document")
+            if document_node is None:
+                continue
+            nodes.append(document_node)
+            edges.append(
+                build_graph_edge(f"dec_supported_{document_node.id}", decision_node.id, document_node.id, "SUPPORTED_BY")
+            )
 
-        # Documents → Citations
-        for doc in (data.get("documents") or []):
-            props = _extract_node_props(doc)
-            doc_id = _safe_str(props.get("id"))
-            if doc_id:
-                nodes.append(GraphNode(id=doc_id, label="Document", name=_safe_str(props.get("title")), properties=props))
-                edges.append(GraphEdge(id=f"dec_supported_{doc_id}", source=dec_node.id, target=doc_id, type="SUPPORTED_BY", properties={}))
-                citations.append(Citation(
-                    source_id=doc_id,
-                    title=_safe_str(props.get("title")),
-                    type=_safe_str(props.get("type", "document")),
-                    url=props.get("url"),
-                    excerpt=props.get("excerpt"),
-                ))
+        for incident in data.get("incidents") or []:
+            incident_node = build_graph_node(incident, label="Incident")
+            if incident_node is None:
+                continue
+            nodes.append(incident_node)
+            edges.append(build_graph_edge(f"inc_led_{incident_node.id}", incident_node.id, decision_node.id, "LED_TO"))
+            paths.append(render_path(incident_node.name, incident_node.label, [("LED_TO", decision_node.name, decision_node.label)]))
 
-        # Incidents
-        for inc in (data.get("incidents") or []):
-            props = _extract_node_props(inc)
-            inc_id = _safe_str(props.get("id"))
-            if inc_id:
-                nodes.append(GraphNode(id=inc_id, label="Incident", name=_safe_str(props.get("title")), properties=props))
-                edges.append(GraphEdge(id=f"inc_led_{inc_id}", source=inc_id, target=dec_node.id, type="LED_TO", properties={}))
-                paths.append(f"Incident '{props.get('title')}' → LED_TO → Decision '{dec_props.get('title')}'")
-                citations.append(Citation(
-                    source_id=inc_id,
-                    title=_safe_str(props.get("title")),
-                    type="incident",
-                    excerpt=props.get("summary"),
-                ))
+        for person in data.get("people") or []:
+            person_node = build_graph_node(person, label="Person")
+            if person_node is None:
+                continue
+            nodes.append(person_node)
+            edges.append(build_graph_edge(f"dec_by_{person_node.id}", decision_node.id, person_node.id, "DECIDED_BY"))
 
-        # People who decided
-        for person in (data.get("people") or []):
-            props = _extract_node_props(person)
-            person_id = _safe_str(props.get("id"))
-            if person_id:
-                nodes.append(GraphNode(id=person_id, label="Person", name=_safe_str(props.get("name")), properties=props))
-                edges.append(GraphEdge(id=f"dec_by_{person_id}", source=dec_node.id, target=person_id, type="DECIDED_BY", properties={}))
+        for service in data.get("services") or []:
+            service_node = build_graph_node(service, label="Service")
+            if service_node is None:
+                continue
+            nodes.append(service_node)
+            edges.append(build_graph_edge(f"dec_affects_{service_node.id}", decision_node.id, service_node.id, "AFFECTS"))
+            paths.append(render_path(decision_node.name, decision_node.label, [("AFFECTS", service_node.name, service_node.label)]))
 
-        # Affected services
-        for svc in (data.get("services") or []):
-            props = _extract_node_props(svc)
-            svc_id = _safe_str(props.get("id"))
-            if svc_id:
-                nodes.append(GraphNode(id=svc_id, label="Service", name=_safe_str(props.get("name")), properties=props))
-                edges.append(GraphEdge(id=f"dec_affects_{svc_id}", source=dec_node.id, target=svc_id, type="AFFECTS", properties={}))
-                paths.append(f"Decision '{dec_props.get('title')}' → AFFECTS → Service '{props.get('name')}'")
+        citations = self.evidence.normalize_citations(data.get("documents") or [], source_type="document")
+        citations.extend(self.evidence.normalize_citations(data.get("incidents") or [], source_type="incident"))
+        citations.extend(self.evidence.normalize_citations(data.get("pull_requests") or [], source_type="pull_request"))
+        citations.extend(self.evidence.normalize_citations(data.get("tickets") or [], source_type="ticket"))
 
         return {
-            "decision_id": _safe_str(dec_props.get("id")),
-            "title": _safe_str(dec_props.get("title")),
-            "summary": _safe_str(dec_props.get("summary")),
-            "alternatives": _safe_str(dec_props.get("alternatives")),
-            "status": _safe_str(dec_props.get("status")),
-            "decided_at": _safe_str(dec_props.get("decided_at")),
+            "decision_id": decision_node.id,
+            "title": safe_str(decision_properties.get("title")),
+            "summary": safe_str(decision_properties.get("summary")),
+            "alternatives": safe_str(decision_properties.get("alternatives")),
+            "status": safe_str(decision_properties.get("status")),
+            "decided_at": safe_str(decision_properties.get("decided_at")),
             "citations": citations,
             "graph": EvidenceSubgraph(nodes=nodes, edges=edges, paths=paths),
         }
