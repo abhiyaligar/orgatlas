@@ -9,19 +9,27 @@ export interface AsyncResource<T> {
   reload: () => void;
 }
 
+interface AsyncSlice {
+  key: string;
+  state: RequestState;
+  failure: ApiFailure | null;
+}
+
 function toFailure(error: unknown): ApiFailure {
   if (error instanceof Error) {
-    const status = "status" in error ? Number((error as { status?: unknown }).status) : 0;
-    return { message: error.message, status: Number.isFinite(status) ? status : 0 };
+    const candidate = (error as { status?: unknown }).status;
+    const status = typeof candidate === "number" ? candidate : 0;
+    return { message: error.message, status };
   }
   return { message: "Unexpected error", status: 0 };
 }
 
 export function useAsyncResource<T>(loader: () => Promise<T>, deps: unknown[] = []): AsyncResource<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [state, setState] = useState<RequestState>("loading");
-  const [failure, setFailure] = useState<ApiFailure | null>(null);
   const [nonce, setNonce] = useState(0);
+  const [data, setData] = useState<T | null>(null);
+  const [slice, setSlice] = useState<AsyncSlice>({ key: "", state: "idle", failure: null });
+
+  const key = `${nonce}::${deps.join("|")}`;
   const active = useRef(true);
 
   useEffect(() => {
@@ -33,28 +41,35 @@ export function useAsyncResource<T>(loader: () => Promise<T>, deps: unknown[] = 
 
   useEffect(() => {
     let cancelled = false;
-    setState("loading");
-    setFailure(null);
 
     loader()
       .then((result) => {
         if (cancelled) return;
         setData(result);
-        setState("success");
+        setSlice({ key, state: "success", failure: null });
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        setFailure(toFailure(error));
-        setState("error");
+        setSlice({ key, state: "error", failure: toFailure(error) });
       });
 
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nonce, ...deps]);
+  }, [key]);
 
   const reload = useCallback(() => setNonce((value) => value + 1), []);
 
-  return { data, state, failure, reload };
+  // A new key means a new request is in flight; derive that during render
+  // rather than resetting state inside the effect body.
+  const isStale = slice.key !== key;
+  const state: RequestState = isStale ? "loading" : slice.state;
+
+  return {
+    data: isStale ? null : data,
+    state,
+    failure: isStale ? null : slice.failure,
+    reload,
+  };
 }

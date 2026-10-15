@@ -17,7 +17,9 @@ export function EvidenceGraph({ graph, highlightedNodeId, onNodeSelect }: Eviden
   const cyRef = useRef<Core | null>(null);
   const onNodeSelectRef = useRef(onNodeSelect);
 
-  onNodeSelectRef.current = onNodeSelect;
+  useEffect(() => {
+    onNodeSelectRef.current = onNodeSelect;
+  }, [onNodeSelect]);
 
   useEffect(() => {
     const container = containerRef.current;

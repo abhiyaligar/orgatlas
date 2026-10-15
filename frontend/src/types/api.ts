@@ -39,7 +39,7 @@ export interface GraphNode {
     | "OnboardingTopic"
     | string;
   name: string;
-  properties: Record<string, any>;
+  properties: Record<string, unknown>;
 }
 
 export interface GraphEdge {
@@ -47,7 +47,7 @@ export interface GraphEdge {
   source: string;
   target: string;
   type: string;
-  properties: Record<string, any>;
+  properties: Record<string, unknown>;
 }
 
 export interface EvidenceSubgraph {
@@ -110,7 +110,7 @@ export interface EntityDetailResponse {
   id: string;
   label: string;
   name: string;
-  properties: Record<string, any>;
+  properties: Record<string, unknown>;
   neighbors: Array<{
     relationship: string;
     direction: "incoming" | "outgoing";
@@ -118,3 +118,4 @@ export interface EntityDetailResponse {
   }>;
   citations: Citation[];
 }
+

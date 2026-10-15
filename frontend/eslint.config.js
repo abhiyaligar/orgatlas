@@ -17,4 +17,20 @@ export default tseslint.config(
       "@typescript-eslint/consistent-type-imports": "error",
     },
   },
+  {
+    // Node config files run in Node, not the browser.
+    files: ["*.cjs", "*.config.{js,ts}"],
+    languageOptions: {
+      globals: { module: "writable", require: "readonly", process: "readonly" },
+    },
+  },
+  {
+    // shadcn/ui primitives intentionally co-locate their variants with the
+    // component and declare an empty props interface extending a base type.
+    files: ["src/components/ui/**/*.tsx"],
+    rules: {
+      "react-refresh/only-export-components": "off",
+      "@typescript-eslint/no-empty-object-type": "off",
+    },
+  },
 );

@@ -10,9 +10,13 @@ import { DemoPromptSelector } from "@/features/ask/DemoPromptSelector";
 import { EvidenceDrawer } from "@/features/ask/EvidenceDrawer";
 import { useAskQuestion } from "@/hooks/useAskQuestion";
 
-import type { Citation } from "@/types";
+import type { Citation, EvidenceSubgraph } from "@/types";
 
-export function AskWorkspace() {
+interface AskWorkspaceProps {
+  onAnswer?: (graph: EvidenceSubgraph) => void;
+}
+
+export function AskWorkspace({ onAnswer }: AskWorkspaceProps) {
   const [question, setQuestion] = useState("");
   const [submitted, setSubmitted] = useState<string | null>(null);
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
@@ -23,7 +27,7 @@ export function AskWorkspace() {
     if (!trimmed || pending) return;
     setSubmitted(trimmed);
     setSelectedCitation(null);
-    void ask({ question: trimmed });
+    void ask({ question: trimmed }).then(() => undefined);
   };
 
   return (
@@ -62,7 +66,10 @@ export function AskWorkspace() {
         {response ? (
           <AnswerPanel
             response={response}
-            onCitationSelect={setSelectedCitation}
+            onCitationSelect={(citation) => {
+              setSelectedCitation(citation);
+              onAnswer?.(response.graph);
+            }}
             onFollowUp={submit}
           />
         ) : !pending && !failure ? (
