@@ -20,9 +20,10 @@ backend/coverage/
 backend/.coverage
 
 # Local relational/metadata database files (schema is governed by Alembic)
+*.db
+*.sqlite
+*.sqlite3
 backend/*.db
-backend/*.sqlite3
-backend/*.sqlite
 
 # Local/generated demo artifacts; curated fictional fixtures remain tracked
 data/private/
