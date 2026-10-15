@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     FALKORDB_PORT: int = 6379
     FALKORDB_USERNAME: Optional[str] = None
     FALKORDB_PASSWORD: Optional[str] = None
-    FALKORDB_GRAPH_NAME: str = "orgatlas"
+    FALKORDB_GRAPH_NAME: str = "orgatlas_dev"
 
     # Nebius LLM inference configuration (OpenAI-compatible)
     NEBIUS_API_KEY: Optional[str] = None
