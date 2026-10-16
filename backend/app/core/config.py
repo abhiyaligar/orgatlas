@@ -38,6 +38,17 @@ class Settings(BaseSettings):
     # MCP context server security
     MCP_API_TOKEN: Optional[str] = None
 
+    # Track A: repository ingestion via isolated E2B sandbox workers.
+    # The sandbox clones and parses only; it never receives database or
+    # model-provider credentials.
+    # Every Track A value is supplied by the environment. None are defaulted
+    # here, so a missing setting surfaces as None instead of a silent fallback.
+    E2B_API_KEY: Optional[str] = None
+    E2B_INGEST_TEMPLATE: Optional[str] = None
+    E2B_SANDBOX_TIMEOUT: Optional[int] = None
+    INGEST_COMMIT_DEPTH: Optional[int] = None
+    INGEST_CACHE_DIR: Optional[str] = None
+
     model_config = SettingsConfigDict(
         env_file=ENV_FILES,
         env_file_encoding="utf-8",
