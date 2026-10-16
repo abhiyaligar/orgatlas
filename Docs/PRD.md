@@ -49,7 +49,7 @@ A coding agent asks: “I plan to change Checkout authentication. What services,
 
 ## 6. Non-goals for the hackathon MVP
 
-- Production Slack, GitHub, Jira, Notion, or Google Drive integrations.
+- Production Slack, GitHub, Jira, Notion, or Google Drive integrations. **Superseded in part by [ADR-010](DECISIONS.md#adr-010-ingest-real-repository-code-into-the-knowledge-graph)**, which admits one-shot ingestion of real public GitHub repositories into the knowledge graph. Other integrations and all write-back remain out of scope.
 - Authentication, organization administration, billing, or role-based access management.
 - Autonomous actions that modify external systems.
 - Unrestricted LLM-generated Cypher.

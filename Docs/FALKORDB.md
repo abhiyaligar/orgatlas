@@ -28,6 +28,17 @@ OrgAtlas answers relationship questions that document search alone cannot resolv
 
 Index stable identifiers and normalized names for frequently retrieved labels: Person, Team, Service, Decision, Document, Repository, and Incident. Add full-text search only after core deterministic graph queries work. Defer vector embeddings: the curated demo corpus is small, and explicit graph relationships are more important for the judging narrative.
 
+### Index strategy for ingested repositories
+
+Ingested code history is queried by repository and by path, so those labels are indexed on both `id` and the namespaced key:
+
+- `Commit` on `(sha)` and on `(repository_id)`
+- `File` on `(path)` and on `(repository_id)`
+- `Module` on `(path)` and on `(repository_id)`
+- `ExternalIdentity` on `(email)` and on `(username)`
+
+A commit lookup is always scoped by `repository_id`, so composite lookups stay bounded even when several repositories are ingested. Ingested data is merged with `MERGE`, making re-ingestion idempotent rather than duplicating history.
+
 ## Cloud/free-tier constraints
 
 The free cloud tier is suitable for a compact curated demo dataset, not a production workload. The MVP therefore uses modest seed data, avoids memory-heavy vector indexes, and treats the deployed graph as demo data. The deployment document captures operational setup; database credentials are server-side secrets.
