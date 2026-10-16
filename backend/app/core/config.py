@@ -30,10 +30,13 @@ class Settings(BaseSettings):
     FALKORDB_PASSWORD: Optional[str] = None
     FALKORDB_GRAPH_NAME: str = "orgatlas_dev"
 
-    # Nebius LLM inference configuration (OpenAI-compatible)
+# Nebius LLM inference configuration (OpenAI-compatible)
+    # Used only as a fallback for files whose authors wrote no usable
+    # documentation. It is never called from the E2B sandbox, which receives no
+    # provider credentials.
     NEBIUS_API_KEY: Optional[str] = None
     NEBIUS_API_BASE_URL: str = "https://api.studio.nebius.ai/v1"
-    NEBIUS_MODEL_NAME: str = "meta-llama/Meta-Llama-3.1-70B-Instruct"
+    NEBIUS_MODEL_NAME: str = "zai-org/GLM-5.3-Flash"
 
     # MCP context server security
     MCP_API_TOKEN: Optional[str] = None
