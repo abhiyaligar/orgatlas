@@ -10,6 +10,9 @@
         "deps/",
         "native-deps/",
         ".git/",
+        ".claude/",
+        ".opencode/",
+        ".codex/",
         "*.min.js",
         "*.lock"
       ],
@@ -20,7 +23,8 @@
         "include_globs is extension-based and is applied to the whole repository path, so '*.rs' keeps any Rust file at any depth.",
         "FalkorDB vendors third-party C under src/ (LAGraph, Dijkstra). Those are .c/.h and are excluded because they are not project source; set include_globs to '*.c' and '*.h' to keep them.",
         "deps/ is excluded because it holds submodule checkouts whose contents belong to other repositories.",
-        "Enforcement: 13075 -> 337 files and 33449 -> 1221 MODIFIES edges at depth 600; 319 of 600 commits retain at least one relevant file."
+        ".claude/, .opencode/ and .codex/ are excluded because they hold coding-agent configuration and skill documents rather than project source; the '*.md' include glob would otherwise admit them as if they were documentation.",
+        "Enforcement: 13075 -> 329 files and 33449 -> 1209 MODIFIES edges at depth 600; 319 of 600 commits retain at least one relevant file."
       ]
     }
   ]
