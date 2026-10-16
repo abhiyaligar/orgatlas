@@ -205,6 +205,7 @@ def load_repository_config(repo_root: str, url: str) -> dict[str, Any]:
 
 
 MAX_DESCRIBE_BYTES = 256 * 1024
+MAX_EXCERPT_CHARS = 12_000
 
 
 def head_sha(repo_path: str) -> str:
@@ -215,16 +216,28 @@ def head_sha(repo_path: str) -> str:
         return ""
 
 
-def describe_files(repo_path: str, file_records: list) -> tuple[str, int]:
+def build_excerpt(text: str) -> str:
+    """Bound the source text handed to the API-side model fallback."""
+    if len(text) <= MAX_EXCERPT_CHARS:
+        return text
+    return text[:MAX_EXCERPT_CHARS] + "\n... [truncated for length] ..."
+
+
+def describe_files(repo_path: str, file_records: list) -> tuple[str, int, int]:
     """Annotate each file record with a description read from the clone.
 
     Files are read from disk at the checked-out commit, so descriptions always
     carry the sha they were derived from. Large or unreadable files are left
     undescribed rather than truncated into a misleading summary.
+
+    The sandbox never calls a model provider. For files with no usable
+    authored text it attaches a bounded ``excerpt`` so the API can decide
+    whether to run the fallback, and returns the size of that gap set.
     """
     sha = head_sha(repo_path)
     root = Path(repo_path)
     described = 0
+    needing_model = 0
 
     for record in file_records:
         full_path = root / record["path"]
@@ -246,8 +259,16 @@ def describe_files(repo_path: str, file_records: list) -> tuple[str, int]:
             record["docs_source"] = described_info["docs_source"]
             record["docs_at_sha"] = sha
             described += 1
+            continue
 
-    return sha, described
+        # No authored prose and no public declarations. Ship a bounded excerpt
+        # so the API can run the fallback; the gap set is reported, not spent.
+        record["docs_source"] = "none"
+        record["docs_at_sha"] = sha
+        record["excerpt"] = build_excerpt(text)
+        needing_model += 1
+
+    return sha, described, needing_model
 
 
 def encode_filter_config(config: dict | None) -> str | None:
@@ -337,7 +358,7 @@ def scan_repository(repo_path: str, url: str, depth: int, config: dict | None = 
         for path in files
     ]
 
-    described, described_at = describe_files(repo_path, file_records)
+    described, described_at, needing_model = describe_files(repo_path, file_records)
 
     codeowners_paths = (
         collect_codeowners_paths(manifests["CODEOWNERS"]) if "CODEOWNERS" in manifests else []
@@ -347,6 +368,8 @@ def scan_repository(repo_path: str, url: str, depth: int, config: dict | None = 
         "repository_url": url,
         "commit_depth": depth,
         "described_at_sha": described_at,
+        "described_count": described,
+        "needing_model_count": needing_model,
         "filters": {
             "include_globs": file_filter.include_globs,
             "exclude_paths": file_filter.exclude_paths,

@@ -274,7 +274,7 @@ class TestDescribeFilesInAClone:
             {"path": "src/graph.rs", "language": "Rust"},
             {"path": "README.md", "language": "Markdown"},
         ]
-        sha, described = describe_files(str(tmp_path), records)
+        sha, described, needing = describe_files(str(tmp_path), records)
 
         assert len(sha) == 40, "should record the full commit sha"
         assert described == 2
@@ -290,7 +290,7 @@ class TestDescribeFilesInAClone:
         self._write(tmp_path, "assets/logo.png", "", binary=True)
 
         records = [{"path": "assets/logo.png", "language": "Other"}]
-        _sha, described = describe_files(str(tmp_path), records)
+        _sha, described, needing = describe_files(str(tmp_path), records)
 
         assert described == 0
         assert records[0]["docs_source"] == "skipped_unreadable"
@@ -303,7 +303,7 @@ class TestDescribeFilesInAClone:
         self._write(tmp_path, "big.md", "// filler\n" * (MAX_DESCRIBE_BYTES // 5))
 
         records = [{"path": "big.md", "language": "Markdown"}]
-        _sha, described = describe_files(str(tmp_path), records)
+        _sha, described, needing = describe_files(str(tmp_path), records)
 
         assert described == 0
         assert records[0]["docs_source"] == "skipped_large"
@@ -313,7 +313,7 @@ class TestDescribeFilesInAClone:
 
         self._make_repo(tmp_path)
         records = [{"path": "not/there.rs", "language": "Rust"}]
-        _sha, described = describe_files(str(tmp_path), records)
+        _sha, described, needing = describe_files(str(tmp_path), records)
 
         assert described == 0
         assert "summary" not in records[0]
@@ -325,9 +325,65 @@ class TestDescribeFilesInAClone:
         self._write(tmp_path, "src/plain.rs", RUST_NO_DOCS)
 
         records = [{"path": "src/plain.rs", "language": "Rust"}]
-        _sha, described = describe_files(str(tmp_path), records)
+        _sha, described, needing = describe_files(str(tmp_path), records)
 
         # Public declarations still count as usable description.
         assert described == 1
         assert records[0]["docs_source"] == "declaration"
         assert records[0]["symbols"] == ["alpha", "Beta", "Gamma"]
+    def test_gap_files_get_a_bounded_excerpt_for_the_fallback(self, tmp_path):
+        from app.ingestion.repo_scanner import (
+            MAX_EXCERPT_CHARS,
+            build_excerpt,
+            describe_files,
+        )
+
+        self._make_repo(tmp_path)
+        # No module docs and no public declarations: nothing to extract.
+        self._write(tmp_path, "src/plain.rs", "fn only_private() {}\nmod helpers;\n")
+
+        records = [{"path": "src/plain.rs", "language": "Rust"}]
+        sha, described, needing = describe_files(str(tmp_path), records)
+
+        assert described == 0
+        assert needing == 1
+        assert records[0]["docs_source"] == "none"
+        assert records[0]["docs_at_sha"] == sha, "gap files must still pin a sha"
+        assert "only_private" in records[0]["excerpt"]
+        assert "summary" not in records[0], "no summary is invented in the sandbox"
+
+    def test_described_files_carry_no_excerpt(self, tmp_path):
+        from app.ingestion.repo_scanner import describe_files
+
+        self._make_repo(tmp_path)
+        self._write(tmp_path, "src/graph.rs", RUST_WITH_MODULE_DOCS)
+
+        records = [{"path": "src/graph.rs", "language": "Rust"}]
+        _sha, described, needing = describe_files(str(tmp_path), records)
+
+        assert described == 1
+        assert needing == 0
+        assert "excerpt" not in records[0], "wasteful payload for already-described files"
+
+    def test_skipped_files_do_not_join_the_gap_set(self, tmp_path):
+        from app.ingestion.repo_scanner import MAX_DESCRIBE_BYTES, describe_files
+
+        self._make_repo(tmp_path)
+        self._write(tmp_path, "assets/logo.png", "", binary=True)
+        self._write(tmp_path, "big.md", "plain text\n" * (MAX_DESCRIBE_BYTES // 6))
+
+        records = [
+            {"path": "assets/logo.png", "language": "Other"},
+            {"path": "big.md", "language": "Markdown"},
+        ]
+        _sha, described, needing = describe_files(str(tmp_path), records)
+
+        assert described == 0
+        assert needing == 0, "binary and oversized files must not trigger model calls"
+
+    def test_excerpt_is_bounded(self):
+        from app.ingestion.repo_scanner import MAX_EXCERPT_CHARS, build_excerpt
+
+        built = build_excerpt("x" * (MAX_EXCERPT_CHARS * 2))
+        assert len(built) < MAX_EXCERPT_CHARS * 2
+        assert "truncated for length" in built
