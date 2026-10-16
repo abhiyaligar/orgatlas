@@ -274,7 +274,7 @@ class TestDescribeFilesInAClone:
             {"path": "src/graph.rs", "language": "Rust"},
             {"path": "README.md", "language": "Markdown"},
         ]
-        sha, described, needing = describe_files(str(tmp_path), records)
+        sha, described, needing, decls = describe_files(str(tmp_path), records)
 
         assert len(sha) == 40, "should record the full commit sha"
         assert described == 2
@@ -290,7 +290,7 @@ class TestDescribeFilesInAClone:
         self._write(tmp_path, "assets/logo.png", "", binary=True)
 
         records = [{"path": "assets/logo.png", "language": "Other"}]
-        _sha, described, needing = describe_files(str(tmp_path), records)
+        _sha, described, needing, decls = describe_files(str(tmp_path), records)
 
         assert described == 0
         assert records[0]["docs_source"] == "skipped_unreadable"
@@ -303,7 +303,7 @@ class TestDescribeFilesInAClone:
         self._write(tmp_path, "big.md", "// filler\n" * (MAX_DESCRIBE_BYTES // 5))
 
         records = [{"path": "big.md", "language": "Markdown"}]
-        _sha, described, needing = describe_files(str(tmp_path), records)
+        _sha, described, needing, decls = describe_files(str(tmp_path), records)
 
         assert described == 0
         assert records[0]["docs_source"] == "skipped_large"
@@ -313,7 +313,7 @@ class TestDescribeFilesInAClone:
 
         self._make_repo(tmp_path)
         records = [{"path": "not/there.rs", "language": "Rust"}]
-        _sha, described, needing = describe_files(str(tmp_path), records)
+        _sha, described, needing, decls = describe_files(str(tmp_path), records)
 
         assert described == 0
         assert "summary" not in records[0]
@@ -325,7 +325,7 @@ class TestDescribeFilesInAClone:
         self._write(tmp_path, "src/plain.rs", RUST_NO_DOCS)
 
         records = [{"path": "src/plain.rs", "language": "Rust"}]
-        _sha, described, needing = describe_files(str(tmp_path), records)
+        _sha, described, needing, decls = describe_files(str(tmp_path), records)
 
         # Public declarations still count as usable description.
         assert described == 1
@@ -343,7 +343,7 @@ class TestDescribeFilesInAClone:
         self._write(tmp_path, "src/plain.rs", "fn only_private() {}\nmod helpers;\n")
 
         records = [{"path": "src/plain.rs", "language": "Rust"}]
-        sha, described, needing = describe_files(str(tmp_path), records)
+        sha, described, needing, decls = describe_files(str(tmp_path), records)
 
         assert described == 0
         assert needing == 1
@@ -359,7 +359,7 @@ class TestDescribeFilesInAClone:
         self._write(tmp_path, "src/graph.rs", RUST_WITH_MODULE_DOCS)
 
         records = [{"path": "src/graph.rs", "language": "Rust"}]
-        _sha, described, needing = describe_files(str(tmp_path), records)
+        _sha, described, needing, decls = describe_files(str(tmp_path), records)
 
         assert described == 1
         assert needing == 0
@@ -376,7 +376,7 @@ class TestDescribeFilesInAClone:
             {"path": "assets/logo.png", "language": "Other"},
             {"path": "big.md", "language": "Markdown"},
         ]
-        _sha, described, needing = describe_files(str(tmp_path), records)
+        _sha, described, needing, decls = describe_files(str(tmp_path), records)
 
         assert described == 0
         assert needing == 0, "binary and oversized files must not trigger model calls"
@@ -387,3 +387,35 @@ class TestDescribeFilesInAClone:
         built = build_excerpt("x" * (MAX_EXCERPT_CHARS * 2))
         assert len(built) < MAX_EXCERPT_CHARS * 2
         assert "truncated for length" in built
+
+    def test_declarations_are_attached_and_counted(self, tmp_path):
+        from app.ingestion.repo_scanner import describe_files
+
+        git = self._make_repo(tmp_path)
+        self._write(tmp_path, "src/graph.rs", RUST_WITH_MODULE_DOCS)
+        git("add", "-A")
+        git("commit", "-q", "-m", "initial")
+
+        records = [{"path": "src/graph.rs", "language": "Rust"}]
+        _sha, _described, _needing, decls = describe_files(str(tmp_path), records)
+
+        assert decls > 0
+        assert decls == len(records[0]["declarations"])
+        names = {d["name"] for d in records[0]["declarations"]}
+        assert "Graph" in names and "query" in names
+
+    def test_missing_grammar_reports_negative_count_rather_than_guessing(self, tmp_path, monkeypatch):
+        import app.ingestion.repo_scanner as scanner
+
+        monkeypatch.setattr(scanner, "available_extensions", list)
+        git = self._make_repo(tmp_path)
+        self._write(tmp_path, "src/graph.rs", RUST_WITH_MODULE_DOCS)
+        git("add", "-A")
+        git("commit", "-q", "-m", "initial")
+
+        records = [{"path": "src/graph.rs", "language": "Rust"}]
+        _sha, _described, _needing, decls = scanner.describe_files(str(tmp_path), records)
+
+        assert decls == -1, "a negative count means the parser was unavailable"
+        assert "declarations" not in records[0]
+        assert records[0]["summary"], "file-level documentation still works"

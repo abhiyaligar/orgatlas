@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import fnmatch
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -18,6 +19,8 @@ from typing import Any
 
 from app.ingestion.dependency_scanner import collect_dependencies
 from app.ingestion.file_docs import describe_source
+from app.ingestion.symbols import available_extensions
+from app.ingestion.symbols import extract as extract_symbols
 from app.ingestion.git_history_parser import (
     GIT_LOG_FORMAT,
     CommitRecord,
@@ -204,6 +207,8 @@ def load_repository_config(repo_root: str, url: str) -> dict[str, Any]:
     return {}
 
 
+logger = logging.getLogger(__name__)
+
 MAX_DESCRIBE_BYTES = 256 * 1024
 MAX_EXCERPT_CHARS = 12_000
 
@@ -223,12 +228,17 @@ def build_excerpt(text: str) -> str:
     return text[:MAX_EXCERPT_CHARS] + "\n... [truncated for length] ..."
 
 
-def describe_files(repo_path: str, file_records: list) -> tuple[str, int, int]:
+def describe_files(repo_path: str, file_records: list) -> tuple[str, int, int, int]:
     """Annotate each file record with a description read from the clone.
 
     Files are read from disk at the checked-out commit, so descriptions always
     carry the sha they were derived from. Large or unreadable files are left
     undescribed rather than truncated into a misleading summary.
+
+    Declarations are extracted from the same read, at no extra cost. If no
+    tree-sitter grammar is installed the payload is marked so the caller can
+    see that symbols are absent by environment rather than by content; no
+    symbols are guessed without a parser.
 
     The sandbox never calls a model provider. For files with no usable
     authored text it attaches a bounded ``excerpt`` so the API can decide
@@ -238,6 +248,13 @@ def describe_files(repo_path: str, file_records: list) -> tuple[str, int, int]:
     root = Path(repo_path)
     described = 0
     needing_model = 0
+    symbols_found = 0
+    symbols_available = bool(available_extensions())
+
+    if not symbols_available:
+        logger.warning(
+            "no tree-sitter grammar is installed; declaration extraction is skipped"
+        )
 
     for record in file_records:
         full_path = root / record["path"]
@@ -259,16 +276,22 @@ def describe_files(repo_path: str, file_records: list) -> tuple[str, int, int]:
             record["docs_source"] = described_info["docs_source"]
             record["docs_at_sha"] = sha
             described += 1
-            continue
+        else:
+            # No authored prose and no public declarations. Ship a bounded
+            # excerpt so the API can run the fallback; the gap set is reported,
+            # not spent.
+            record["docs_source"] = "none"
+            record["docs_at_sha"] = sha
+            record["excerpt"] = build_excerpt(text)
+            needing_model += 1
 
-        # No authored prose and no public declarations. Ship a bounded excerpt
-        # so the API can run the fallback; the gap set is reported, not spent.
-        record["docs_source"] = "none"
-        record["docs_at_sha"] = sha
-        record["excerpt"] = build_excerpt(text)
-        needing_model += 1
+        if symbols_available:
+            declarations = extract_symbols(text, record["path"])
+            if declarations:
+                record["declarations"] = declarations
+                symbols_found += len(declarations)
 
-    return sha, described, needing_model
+    return sha, described, needing_model, symbols_found if symbols_available else -1
 
 
 def encode_filter_config(config: dict | None) -> str | None:
@@ -358,7 +381,9 @@ def scan_repository(repo_path: str, url: str, depth: int, config: dict | None = 
         for path in files
     ]
 
-    described, described_at, needing_model = describe_files(repo_path, file_records)
+    described_at, described, needing_model, declaration_count = describe_files(
+        repo_path, file_records
+    )
 
     codeowners_paths = (
         collect_codeowners_paths(manifests["CODEOWNERS"]) if "CODEOWNERS" in manifests else []
@@ -370,6 +395,8 @@ def scan_repository(repo_path: str, url: str, depth: int, config: dict | None = 
         "described_at_sha": described_at,
         "described_count": described,
         "needing_model_count": needing_model,
+        "symbols_available": declaration_count >= 0,
+        "declaration_count": max(declaration_count, 0),
         "filters": {
             "include_globs": file_filter.include_globs,
             "exclude_paths": file_filter.exclude_paths,

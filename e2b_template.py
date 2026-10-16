@@ -4,22 +4,29 @@ Run once with E2B_API_KEY set:
 
     python e2b_template.py
 
-Two deliberate choices:
+Deliberate choices:
 
 * The template is built at 4096 MB. E2B's default sandbox is 1024 MB, which is
   not enough to clone the target repository.
-* No ``pip install`` runs at build time. The scanner imports only the Python
-  standard library, so the template needs git and nothing else. This keeps the
-  build fast and removes any drift between the sandbox and the local venv.
-
-Because of that second point, ``app/ingestion/repo_scanner.py`` and its imports
-must remain standard-library only.
+* tree-sitter and its ten grammars are installed at build time, from the pinned
+  list in ``tree_sitter_deps.py``. Everything else the scanner needs is Python's
+  standard library, so the template still needs no database or model client.
+  Grammar versions are pinned in one place and shared with
+  ``backend/requirements.txt``, so the sandbox and the local venv cannot
+  diverge.
+* A grammar smoke test runs during the build. If any grammar fails to import or
+  parse, the build fails instead of shipping a template that would silently
+  extract no symbols.
+* The application package is uploaded into each sandbox per run, so this
+  template only has to supply the operating system, git and Python.
 """
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+
+from tree_sitter_deps import SMOKE_TEST, TREE_SITTER_PACKAGES
 
 REPO_ROOT = Path(__file__).resolve().parent
 TEMPLATE_NAME = "orgatlas-ingest"
@@ -60,11 +67,20 @@ def build() -> None:
         )
         .from_python_image("3.11")
         .apt_install(["git", "ca-certificates"])
+        .pip_install(TREE_SITTER_PACKAGES)
         .set_workdir("/home/user")
         # Forward slashes are required: E2B does not normalise the native
         # Windows separator, and a backslash path collects zero files.
         .copy("backend/app", "/home/user/app")
         .run_cmd("git --version")
+        # A template that cannot parse would silently produce no symbols, so
+        # the build fails here instead.
+        .run_cmd(
+            "python - <<'PY'\n"
+            + SMOKE_TEST
+            + "PY",
+            envs={"PYTHONDONTWRITEBYTECODE": "1"},
+        )
     )
 
     print(f"Building template {TEMPLATE_NAME!r} (cpu={CPU_COUNT}, memory={MEMORY_MB} MB)...")
