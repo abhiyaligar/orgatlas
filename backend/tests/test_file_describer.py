@@ -231,3 +231,53 @@ class TestUnexaminedFilesAreVisible:
 
         assert estimate["already_described"] == 0
         assert estimate["unexamined_files"] == 5
+
+class TestSandboxCodeSync:
+    """The sandbox must run the host's scanner, never the template snapshot."""
+
+    def test_app_package_path_resolves_to_the_real_directory(self):
+        from pathlib import Path
+
+        import app.ingestion.sandbox_client as sc
+
+        app_dir = Path(sc.__file__).resolve().parents[1]
+        assert app_dir.name == "app"
+        assert app_dir.is_dir()
+        assert (app_dir / "ingestion" / "repo_scanner.py").is_file()
+
+    def test_empty_upload_is_refused_rather_than_scanning_stale_code(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        from app.ingestion import sandbox_client as sc
+
+        empty = tmp_path / "app"
+        empty.mkdir()
+
+        sandbox = MagicMock()
+        with pytest.raises(sc.SandboxError, match="no application modules were synced"):
+            sc.sync_app_tree(sandbox, app_dir=empty)
+
+        sandbox.commands.run.assert_not_called()
+
+    def test_missing_package_is_refused(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        from app.ingestion import sandbox_client as sc
+
+        with pytest.raises(sc.SandboxError, match="application package not found"):
+            sc.sync_app_tree(MagicMock(), app_dir=tmp_path / "absent")
+
+    def test_sync_writes_every_module_and_clears_bytecode(self):
+        from unittest.mock import MagicMock, patch
+
+        from app.ingestion import sandbox_client as sc
+
+        sandbox = MagicMock()
+        with patch.object(sc, "SANDBOX_APP_DIR", "/home/user/app"):
+            count = sc.sync_app_tree(sandbox, app_dir=sc.Path(sc.__file__).resolve().parents[1])
+
+        assert count > 40, "the whole application package should be uploaded"
+        written = {c.args[0] for c in sandbox.files.write.call_args_list}
+        assert "/home/user/app/ingestion/repo_scanner.py" in written
+        assert "/home/user/app/ingestion/file_docs.py" in written
+        assert any("__pycache__" in c.args[0] for c in sandbox.commands.run.call_args_list)

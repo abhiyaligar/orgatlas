@@ -46,7 +46,7 @@ def _filter_config_for(repository_url: str) -> dict | None:
     return load_repository_config(str(repo_root), repository_url)
 
 
-def sync_app_tree(sandbox) -> int:
+def sync_app_tree(sandbox, app_dir: Path | None = None) -> int:
     """Upload the current ``backend/app`` package into the sandbox.
 
     The template bakes in a snapshot of the application package, so without
@@ -58,15 +58,28 @@ def sync_app_tree(sandbox) -> int:
     behaviour match the host exactly, so the template only has to supply the
     OS, git and Python.
     """
-    app_dir = Path(__file__).resolve().parents[1] / "app"
-    uploaded = 0
+    # sandbox_client.py lives in backend/app/ingestion/, so parents[1] is
+    # already the application package directory.
+    if app_dir is None:
+        app_dir = Path(__file__).resolve().parents[1]
 
+    if not app_dir.is_dir() or app_dir.name != "app":
+        raise SandboxError(f"application package not found at {app_dir}")
+
+    uploaded = 0
     for path in sorted(app_dir.rglob("*.py")):
         if "__pycache__" in path.parts:
             continue
         relative = path.relative_to(app_dir).as_posix()
         sandbox.files.write(f"{SANDBOX_APP_DIR}/{relative}", path.read_bytes())
         uploaded += 1
+
+    # Never let a stale snapshot run quietly: an empty upload means the sandbox
+    # would execute whatever the template was built with.
+    if uploaded == 0:
+        raise SandboxError(
+            "refusing to scan: no application modules were synced into the sandbox"
+        )
 
     # The baked snapshot may carry bytecode that shadows the uploaded source.
     sandbox.commands.run(
