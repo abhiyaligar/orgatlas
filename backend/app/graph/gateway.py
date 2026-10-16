@@ -274,5 +274,39 @@ class GraphGateway:
             })
         return results
 
+    # --- Authored file descriptions -------------------------------------------
+
+    def get_file_description(self, file_id: str) -> Optional[Dict[str, Any]]:
+        """Return the description extracted from the file's own source text."""
+        rows = self._execute(queries.GET_FILE_DESCRIPTION, {"file_id": file_id})
+        if not rows:
+            return None
+        row = rows[0]
+        return {
+            "path": row[0],
+            "name": row[1],
+            "language": row[2],
+            "is_test": row[3],
+            "summary": row[4],
+            "symbols": row[5],
+            "docs_source": row[6],
+            "docs_at_sha": row[7],
+            "repository_id": row[8],
+        }
+
+    def get_commit_authored_at(self, sha: str) -> Optional[str]:
+        rows = self._execute(queries.GET_COMMIT_AUTHORED_AT, {"sha": sha})
+        if not rows or not rows[0]:
+            return None
+        return rows[0][0] or None
+
+    def get_file_changes_after(self, file_id: str, since: str) -> Dict[str, Any]:
+        rows = self._execute(
+            queries.GET_FILE_CHANGES_AFTER, {"file_id": file_id, "since": since}
+        )
+        if not rows:
+            return {"changes": 0, "recent_shas": []}
+        return {"changes": rows[0][0] or 0, "recent_shas": rows[0][1] or []}
+
 
 graph_gateway = GraphGateway()

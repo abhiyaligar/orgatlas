@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from app.ingestion.dependency_scanner import collect_dependencies
+from app.ingestion.file_docs import describe_source
 from app.ingestion.git_history_parser import (
     GIT_LOG_FORMAT,
     CommitRecord,
@@ -203,6 +204,52 @@ def load_repository_config(repo_root: str, url: str) -> dict[str, Any]:
     return {}
 
 
+MAX_DESCRIBE_BYTES = 256 * 1024
+
+
+def head_sha(repo_path: str) -> str:
+    """Return the checked-out commit, used to detect stale descriptions."""
+    try:
+        return _run(["git", "rev-parse", "HEAD"], cwd=repo_path).strip()
+    except ScanError:
+        return ""
+
+
+def describe_files(repo_path: str, file_records: list) -> tuple[str, int]:
+    """Annotate each file record with a description read from the clone.
+
+    Files are read from disk at the checked-out commit, so descriptions always
+    carry the sha they were derived from. Large or unreadable files are left
+    undescribed rather than truncated into a misleading summary.
+    """
+    sha = head_sha(repo_path)
+    root = Path(repo_path)
+    described = 0
+
+    for record in file_records:
+        full_path = root / record["path"]
+        try:
+            if not full_path.is_file():
+                continue
+            if full_path.stat().st_size > MAX_DESCRIBE_BYTES:
+                record["docs_source"] = "skipped_large"
+                continue
+            text = full_path.read_text(encoding="utf-8", errors="strict")
+        except (OSError, ValueError, UnicodeDecodeError):
+            record["docs_source"] = "skipped_unreadable"
+            continue
+
+        described_info = describe_source(text, record["path"], record.get("language"))
+        if described_info["docs_source"] != "none":
+            record["summary"] = described_info["summary"]
+            record["symbols"] = described_info["symbols"]
+            record["docs_source"] = described_info["docs_source"]
+            record["docs_at_sha"] = sha
+            described += 1
+
+    return sha, described
+
+
 def encode_filter_config(config: dict | None) -> str | None:
     """Base64-encode the subset of a repository entry the scanner needs.
 
@@ -290,6 +337,8 @@ def scan_repository(repo_path: str, url: str, depth: int, config: dict | None = 
         for path in files
     ]
 
+    described, described_at = describe_files(repo_path, file_records)
+
     codeowners_paths = (
         collect_codeowners_paths(manifests["CODEOWNERS"]) if "CODEOWNERS" in manifests else []
     )
@@ -297,6 +346,7 @@ def scan_repository(repo_path: str, url: str, depth: int, config: dict | None = 
     return {
         "repository_url": url,
         "commit_depth": depth,
+        "described_at_sha": described_at,
         "filters": {
             "include_globs": file_filter.include_globs,
             "exclude_paths": file_filter.exclude_paths,

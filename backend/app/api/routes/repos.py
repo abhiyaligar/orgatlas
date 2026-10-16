@@ -15,6 +15,7 @@ from app.api.schemas import (
     ChurnResponse,
     CommitSummary,
     CouplingResponse,
+    FileDescriptionResponse,
     FileTimelineResponse,
     IngestJobResponse,
     IngestRequest,
@@ -191,6 +192,26 @@ async def get_file_timeline(file_id: str, limit: int = 50):
             detail=f"No ingested history for file '{file_id}'. Ingest the repository first.",
         )
     result["graph"] = _forensics.evidence.truncate_subgraph(result["graph"])
+    return result
+
+
+@router.get("/file/describe", response_model=FileDescriptionResponse)
+async def describe_file(file_id: str):
+    """Describe a file from the documentation its authors wrote.
+
+    The summary and symbols come from the file's own ``//!``/``///`` docs or
+    declarations as they were at ingest time. The response says explicitly
+    whether that description is still current.
+    """
+    result = _forensics.describe_file(file_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"File '{file_id}' is not in the knowledge graph. "
+                "Ingest the repository first."
+            ),
+        )
     return result
 
 

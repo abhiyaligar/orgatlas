@@ -21,6 +21,7 @@ from app.api.schemas import Citation, EvidenceSubgraph, GraphEdge, GraphNode
 from app.evidence.formatter import build_graph_edge, build_graph_node, render_path, safe_str
 from app.evidence.service import EvidenceService
 from app.graph.gateway import GraphGateway, graph_gateway
+from app.services.onboarding_service import parse_stored_list
 
 logger = logging.getLogger(__name__)
 
@@ -243,3 +244,66 @@ class ChangeForensicsService:
 
         brief["guidance"] = guidance
         return brief
+    def describe_file(self, file_id: str) -> Optional[Dict[str, Any]]:
+        """Describe a file from the documentation its authors wrote.
+
+        The summary and symbols are read from the file's own source text at
+        ingest time. This method reports what that text said and whether the
+        file has since changed in ingested history, rather than regenerating a
+        description and presenting it as current.
+        """
+        record = self.gateway.get_file_description(file_id)
+        if record is None:
+            return None
+
+        symbols = parse_stored_list(record["symbols"])
+        docs_at_sha = record["docs_at_sha"] or ""
+
+        result: Dict[str, Any] = {
+            "file_id": file_id,
+            "path": record["path"],
+            "name": record["name"],
+            "language": record["language"],
+            "is_test": bool(record["is_test"]),
+            "repository_id": record["repository_id"],
+            "summary": record["summary"],
+            "symbols": symbols,
+            "docs_source": record["docs_source"] or "none",
+            "docs_at_sha": docs_at_sha,
+            "stale": False,
+            "changes_since_docs": 0,
+            "recent_shas": [],
+        }
+
+        if not docs_at_sha:
+            result["stale"] = True
+            result["staleness_reason"] = (
+                "No description was recorded for this file during ingestion."
+            )
+            return result
+
+        authored_at = self.gateway.get_commit_authored_at(docs_at_sha)
+        if authored_at is None:
+            result["stale"] = True
+            result["staleness_reason"] = (
+                f"Commit {docs_at_sha} is not in the ingested history, so the "
+                "description cannot be placed in time."
+            )
+            return result
+
+        changes = self.gateway.get_file_changes_after(file_id, authored_at)
+        result["changes_since_docs"] = changes["changes"]
+        result["recent_shas"] = changes["recent_shas"]
+        if changes["changes"]:
+            result["stale"] = True
+            result["staleness_reason"] = (
+                f"{changes['changes']} ingested commit(s) changed this file after "
+                f"the description was written at {docs_at_sha[:8]}. The description "
+                "reflects that revision, not the newest one."
+            )
+        else:
+            result["staleness_reason"] = (
+                f"Description matches the file as of {docs_at_sha[:8]}; no later "
+                "ingested commit changed it."
+            )
+        return result

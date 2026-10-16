@@ -176,3 +176,100 @@ class TestCommitProvenance:
         assert result["confidence"] == "supported"
         assert "IMPLEMENTS" in {e.type for e in result["graph"].edges}
         assert "SUPPORTED_BY" in {e.type for e in result["graph"].edges}
+
+class TestFileDescription:
+    """describe_file reports authored text and whether it is still current."""
+
+    def _record(self, **overrides):
+        base = {
+            "path": "src/graph.rs",
+            "name": "graph.rs",
+            "language": "Rust",
+            "is_test": False,
+            "summary": "Graph traversal over a property graph.",
+            "symbols": '["Graph", "query"]',
+            "docs_source": "module",
+            "docs_at_sha": "abc1234def",
+            "repository_id": "repo_falkordb_falkordb",
+        }
+        base.update(overrides)
+        return base
+
+    def test_returns_authored_summary_and_symbols(self):
+        service = ChangeForensicsService(gateway=MagicMock())
+        service.gateway.get_file_description.return_value = self._record()
+        service.gateway.get_commit_authored_at.return_value = "2024-01-01T00:00:00Z"
+        service.gateway.get_file_changes_after.return_value = {"changes": 0, "recent_shas": []}
+
+        result = service.describe_file("repo_x::src/graph.rs")
+
+        assert result["summary"] == "Graph traversal over a property graph."
+        assert result["symbols"] == ["Graph", "query"]
+        assert result["docs_source"] == "module"
+        assert result["stale"] is False
+        assert "matches the file as of" in result["staleness_reason"]
+
+    def test_marks_stale_when_the_file_changed_after_the_docs(self):
+        service = ChangeForensicsService(gateway=MagicMock())
+        service.gateway.get_file_description.return_value = self._record()
+        service.gateway.get_commit_authored_at.return_value = "2024-01-01T00:00:00Z"
+        service.gateway.get_file_changes_after.return_value = {
+            "changes": 3,
+            "recent_shas": ["dead111"],
+        }
+
+        result = service.describe_file("repo_x::src/graph.rs")
+
+        assert result["stale"] is True
+        assert result["changes_since_docs"] == 3
+        assert "abc1234" in result["staleness_reason"]
+        assert "reflects that revision" in result["staleness_reason"]
+
+    def test_marks_stale_when_no_description_was_recorded(self):
+        service = ChangeForensicsService(gateway=MagicMock())
+        service.gateway.get_file_description.return_value = self._record(
+            summary="", symbols="[]", docs_source="none", docs_at_sha=""
+        )
+
+        result = service.describe_file("repo_x::src/thing.rs")
+
+        assert result["stale"] is True
+        assert "No description was recorded" in result["staleness_reason"]
+        service.gateway.get_commit_authored_at.assert_not_called()
+
+    def test_marks_stale_when_the_docs_commit_is_unknown(self):
+        service = ChangeForensicsService(gateway=MagicMock())
+        service.gateway.get_file_description.return_value = self._record()
+        service.gateway.get_commit_authored_at.return_value = None
+
+        result = service.describe_file("repo_x::src/graph.rs")
+
+        assert result["stale"] is True
+        assert "not in the ingested history" in result["staleness_reason"]
+
+    def test_unknown_file_returns_none(self):
+        service = ChangeForensicsService(gateway=MagicMock())
+        service.gateway.get_file_description.return_value = None
+        assert service.describe_file("repo_x::missing.rs") is None
+
+    def test_unparsable_symbols_do_not_raise(self):
+        service = ChangeForensicsService(gateway=MagicMock())
+        service.gateway.get_file_description.return_value = self._record(symbols="not json")
+        service.gateway.get_commit_authored_at.return_value = "2024-01-01T00:00:00Z"
+        service.gateway.get_file_changes_after.return_value = {"changes": 0, "recent_shas": []}
+
+        result = service.describe_file("repo_x::src/graph.rs")
+
+        assert result["symbols"] == []
+
+    def test_never_invents_a_summary(self):
+        service = ChangeForensicsService(gateway=MagicMock())
+        service.gateway.get_file_description.return_value = self._record(
+            summary="", symbols="[]", docs_source="none", docs_at_sha="abc"
+        )
+        service.gateway.get_commit_authored_at.return_value = "2024-01-01T00:00:00Z"
+        service.gateway.get_file_changes_after.return_value = {"changes": 0, "recent_shas": []}
+
+        result = service.describe_file("repo_x::src/plain.rs")
+
+        assert result["summary"] == ""

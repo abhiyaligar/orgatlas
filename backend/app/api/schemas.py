@@ -191,6 +191,25 @@ class FileTimelineResponse(BaseModel):
     graph: EvidenceSubgraph = Field(default_factory=EvidenceSubgraph)
 
 
+class FileDescriptionResponse(BaseModel):
+    """A file described from the documentation its authors wrote."""
+
+    file_id: str
+    path: str
+    name: str
+    language: str
+    is_test: bool
+    repository_id: str
+    summary: str
+    symbols: List[str]
+    docs_source: str
+    docs_at_sha: str
+    stale: bool
+    staleness_reason: str
+    changes_since_docs: int = 0
+    recent_shas: List[str] = Field(default_factory=list)
+
+
 class ChurnResponse(BaseModel):
     repository_id: str
     path_prefix: str = ""

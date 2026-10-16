@@ -78,7 +78,11 @@ SET f.path = row.path,
     f.name = row.name,
     f.language = row.language,
     f.is_test = row.is_test,
-    f.repository_id = row.repository_id
+    f.repository_id = row.repository_id,
+    f.summary = row.summary,
+    f.symbols = row.symbols,
+    f.docs_source = row.docs_source,
+    f.docs_at_sha = row.docs_at_sha
 """
 
 UPSERT_CODEOWNER_PATH = """
@@ -236,6 +240,7 @@ def build_batches(payload: dict[str, Any]) -> list[tuple[str, list[dict[str, Any
     for record in payload.get("files", []):
         path = record["path"]
         file_id = f"{repository_id}::{path}"
+        symbols = record.get("symbols") or []
         file_rows.append(
             {
                 "id": file_id,
@@ -244,6 +249,10 @@ def build_batches(payload: dict[str, Any]) -> list[tuple[str, list[dict[str, Any
                 "language": record.get("language") or "Other",
                 "is_test": bool(record.get("is_test")),
                 "repository_id": repository_id,
+                "summary": record.get("summary") or "",
+                "symbols": json.dumps(symbols[:25]),
+                "docs_source": record.get("docs_source") or "none",
+                "docs_at_sha": record.get("docs_at_sha") or "",
             }
         )
 

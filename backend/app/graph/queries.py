@@ -220,3 +220,33 @@ MATCH (r:Repository {id: $repository_id})
 RETURN r.id AS id, coalesce(r.name, '') AS name
 LIMIT 1
 """
+
+# 19. Authored description stored on a File during ingestion
+GET_FILE_DESCRIPTION = """
+MATCH (f:File {id: $file_id})
+RETURN f.path AS path,
+       coalesce(f.name, '') AS name,
+       coalesce(f.language, '') AS language,
+       coalesce(f.is_test, false) AS is_test,
+       coalesce(f.summary, '') AS summary,
+       coalesce(f.symbols, '[]') AS symbols,
+       coalesce(f.docs_source, 'none') AS docs_source,
+       coalesce(f.docs_at_sha, '') AS docs_at_sha,
+       coalesce(f.repository_id, '') AS repository_id
+LIMIT 1
+"""
+
+# 20. Authored timestamp of the commit a description was derived from
+GET_COMMIT_AUTHORED_AT = """
+MATCH (c:Commit {id: $sha})
+RETURN c.authored_at AS authored_at
+LIMIT 1
+"""
+
+# 21. Commits touching a file after the point its description was written
+GET_FILE_CHANGES_AFTER = """
+MATCH (c:Commit)-[:MODIFIES]->(f:File {id: $file_id})
+WHERE c.authored_at > $since
+RETURN count(c) AS changes,
+       collect(DISTINCT c.id)[..5] AS recent_shas
+"""
