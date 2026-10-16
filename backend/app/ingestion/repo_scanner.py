@@ -7,6 +7,7 @@ and never receives database or model-provider credentials.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
 import subprocess
@@ -17,6 +18,7 @@ from typing import Any
 from app.ingestion.dependency_scanner import collect_dependencies
 from app.ingestion.git_history_parser import (
     GIT_LOG_FORMAT,
+    CommitRecord,
     collect_authors,
     collect_codeowners_paths,
     collect_unique_files,
@@ -38,6 +40,86 @@ MANIFEST_FILENAMES = (
 )
 
 OUTPUT_FILENAME = "graph.json"
+
+# Always ingested regardless of include globs, because dependency edges and
+# ownership are derived from them.
+ALWAYS_KEEP = frozenset({".gitmodules", "CODEOWNERS", ".github/CODEOWNERS"})
+
+
+class FileFilter:
+    """Applies the include globs and exclude paths from the repository config.
+
+    Filters are applied to the touched-file list before any node or edge is
+    created, so excluded paths never reach the graph.
+    """
+
+    def __init__(
+        self,
+        include_globs: list[str] | None = None,
+        exclude_paths: list[str] | None = None,
+    ) -> None:
+        self.include_globs = [glob for glob in (include_globs or []) if glob]
+        self.exclude_paths = [path for path in (exclude_paths or []) if path]
+
+    @classmethod
+    def from_config(cls, config: dict | None) -> "FileFilter":
+        config = config or {}
+        return cls(
+            include_globs=config.get("include_globs"),
+            exclude_paths=config.get("exclude_paths"),
+        )
+
+    def keep(self, path: str) -> bool:
+        if not path:
+            return False
+        if path in ALWAYS_KEEP:
+            return True
+
+        normalised = path.replace("\\", "/")
+
+        for pattern in self.exclude_paths:
+            if _matches(normalised, pattern):
+                return False
+
+        if self.include_globs and not any(
+            _matches(normalised, pattern) for pattern in self.include_globs
+        ):
+            return False
+
+        return True
+
+    def apply(self, commits):
+        """Return commits with filtered file lists, dropping any that become empty."""
+        kept = []
+        for commit in commits:
+            filtered = tuple(path for path in commit.files if self.keep(path))
+            if not filtered and commit.files:
+                # Every touched path was excluded; the commit has no graph relevance.
+                continue
+            kept.append(
+                CommitRecord(
+                    sha=commit.sha,
+                    author_name=commit.author_name,
+                    author_email=commit.author_email,
+                    authored_at=commit.authored_at,
+                    subject=commit.subject,
+                    parents=commit.parents,
+                    files=filtered,
+                )
+            )
+        return kept
+
+
+def _matches(path: str, pattern: str) -> bool:
+    """Match a repository-relative path against a prefix or glob pattern."""
+    pattern = pattern.replace("\\", "/").rstrip("/")
+    if not pattern:
+        return False
+
+    if any(char in pattern for char in "*?["):
+        return fnmatch.fnmatch(path, pattern)
+
+    return path == pattern or path.startswith(f"{pattern}/")
 
 
 class ScanError(RuntimeError):
@@ -103,7 +185,24 @@ def read_manifests(repo_path: str) -> dict[str, str]:
     return manifests
 
 
-def scan_repository(repo_path: str, url: str, depth: int) -> dict[str, Any]:
+def load_repository_config(repo_root: str, url: str) -> dict[str, Any]:
+    """Read the matching entry from ``data/repos.json``, if present."""
+    config_path = Path(repo_root) / "data" / "repos.json"
+    if not config_path.is_file():
+        return {}
+
+    try:
+        manifest = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    for entry in manifest.get("repositories", []):
+        if entry.get("url") == url:
+            return entry
+    return {}
+
+
+def scan_repository(repo_path: str, url: str, depth: int, config: dict | None = None) -> dict[str, Any]:
     """Produce the structured graph payload for a cloned repository."""
     raw_log = _run(
         [
@@ -119,6 +218,10 @@ def scan_repository(repo_path: str, url: str, depth: int) -> dict[str, Any]:
     commits = parse_git_log(raw_log)
     if not commits:
         raise ScanError("git log produced no parseable commits")
+
+    resolved_config = config if config is not None else load_repository_config(repo_path, url)
+    file_filter = FileFilter.from_config(resolved_config)
+    commits = file_filter.apply(commits)
 
     files = collect_unique_files(commits)
     manifests = read_manifests(repo_path)
@@ -160,6 +263,10 @@ def scan_repository(repo_path: str, url: str, depth: int) -> dict[str, Any]:
     return {
         "repository_url": url,
         "commit_depth": depth,
+        "filters": {
+            "include_globs": file_filter.include_globs,
+            "exclude_paths": file_filter.exclude_paths,
+        },
         "commits": commit_records,
         "files": file_records,
         "authors": [
