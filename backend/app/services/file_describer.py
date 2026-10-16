@@ -73,10 +73,20 @@ def estimate_calls(payload: Dict[str, Any]) -> Dict[str, Any]:
     for record in gap:
         # ~4 characters per token is a reasonable planning estimate.
         approx_prompt_tokens += len(record.get("excerpt") or "") // 4
+
+    # A file with no docs_source at all was never examined, which is different
+    # from one whose authors wrote nothing. Counting those as "documented"
+    # would hide a scanner that silently stopped extracting.
+    undescribed = sum(
+        1
+        for record in payload.get("files", [])
+        if not record.get("docs_source")
+    )
     return {
         "total_files": total_files,
         "gap_files": len(gap),
-        "already_described": total_files - len(gap),
+        "already_described": total_files - len(gap) - undescribed,
+        "unexamined_files": undescribed,
         "approx_prompt_tokens": approx_prompt_tokens,
         "approx_calls": len(gap),
     }

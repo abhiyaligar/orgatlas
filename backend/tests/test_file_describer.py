@@ -207,3 +207,27 @@ class TestFallbackPass:
         assert graph.query.call_count == 2
         sizes = [len(call.args[1]["rows"]) for call in graph.query.call_args_list]
         assert sizes == [BATCH, 5]
+
+class TestUnexaminedFilesAreVisible:
+    """A file the scanner never looked at must not read as documented."""
+
+    def test_missing_docs_source_is_counted_separately(self):
+        payload = _payload(
+            [
+                {"path": "a.rs", "language": "Rust"},  # no docs_source at all
+                _record("b.rs", "module"),
+            ]
+        )
+        estimate = estimate_calls(payload)
+
+        assert estimate["total_files"] == 2
+        assert estimate["unexamined_files"] == 1
+        assert estimate["already_described"] == 1
+        assert estimate["approx_calls"] == 0
+
+    def test_stale_scanner_output_is_not_reported_as_fully_documented(self):
+        payload = _payload([{"path": f"f{i}.rs", "language": "Rust"} for i in range(5)])
+        estimate = estimate_calls(payload)
+
+        assert estimate["already_described"] == 0
+        assert estimate["unexamined_files"] == 5

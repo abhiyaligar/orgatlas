@@ -20,6 +20,7 @@ from app.ingestion.repo_scanner import encode_filter_config, load_repository_con
 logger = logging.getLogger(__name__)
 
 SANDBOX_WORKDIR = "/home/user"
+SANDBOX_APP_DIR = "/home/user/app"
 SANDBOX_OUTPUT_DIR = PurePosixPath(SANDBOX_WORKDIR) / "out"
 PAYLOAD_PATH = SANDBOX_OUTPUT_DIR / "graph.json"
 
@@ -43,6 +44,37 @@ def _filter_config_for(repository_url: str) -> dict | None:
     """
     repo_root = Path(__file__).resolve().parents[3]
     return load_repository_config(str(repo_root), repository_url)
+
+
+def sync_app_tree(sandbox) -> int:
+    """Upload the current ``backend/app`` package into the sandbox.
+
+    The template bakes in a snapshot of the application package, so without
+    this the sandbox would run whatever scanner was current when the template
+    was last built. That silently disables every later scanner change, which is
+    how an ingest once ran with no include/exclude filters at all.
+
+    Uploading the tree (a couple of hundred kilobytes) makes the sandbox's
+    behaviour match the host exactly, so the template only has to supply the
+    OS, git and Python.
+    """
+    app_dir = Path(__file__).resolve().parents[1] / "app"
+    uploaded = 0
+
+    for path in sorted(app_dir.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        relative = path.relative_to(app_dir).as_posix()
+        sandbox.files.write(f"{SANDBOX_APP_DIR}/{relative}", path.read_bytes())
+        uploaded += 1
+
+    # The baked snapshot may carry bytecode that shadows the uploaded source.
+    sandbox.commands.run(
+        f"find {SANDBOX_APP_DIR} -name '__pycache__' -type d -prune -exec rm -rf {{}} + ; "
+        f"find {SANDBOX_APP_DIR} -name '*.pyc' -delete",
+        timeout=60,
+    )
+    return uploaded
 
 
 @dataclass(frozen=True)
@@ -108,7 +140,10 @@ def run_scan(request: ScanRequest, on_stage=None) -> ScanResult:
 
     try:
         sandbox_id = str(sandbox.sandbox_id)
-        stage(f"sandbox {sandbox_id} ready; starting clone")
+        stage(f"sandbox {sandbox_id} ready; syncing scanner code")
+
+        uploaded = sync_app_tree(sandbox)
+        stage(f"synced {uploaded} application module(s) into the sandbox")
 
         filter_config = _filter_config_for(request.repository_url)
         encoded_filters = encode_filter_config(filter_config)
