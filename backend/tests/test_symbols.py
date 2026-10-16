@@ -271,3 +271,53 @@ class TestRegistry:
 
     def test_spec_lookup_is_case_insensitive(self):
         assert spec_for("src/Main.RS").module == "tree_sitter_rust"
+
+class TestSymbolQueriesAgainstTheEngine:
+    """Regression tests for query shapes FalkorDB rejects.
+
+    ORDER BY cannot reference a RETURN alias, and length() on a string property
+    fails with "expected Path or Null but was String"; size() on the property
+    works. These run only when a graph is reachable.
+    """
+
+    def _graph(self):
+        pytest.importorskip("app.graph.connection")
+        from app.graph.connection import graph_manager
+
+        try:
+            graph_manager.check_health()
+        except Exception:
+            pytest.skip("no graph available in this environment")
+        return graph_manager.get_or_create_graph()
+
+    def test_symbol_lookup_orders_without_alias_or_length(self):
+        from app.graph import queries
+
+        graph = self._graph()
+        try:
+            rows = graph.query(
+                queries.GET_CODE_SYMBOL,
+                {"name": "graph_udf", "file_id": "", "limit": 5},
+            ).result_set
+        except Exception as exc:
+            pytest.fail(f"GET_CODE_SYMBOL rejected by the engine: {exc}")
+        assert isinstance(rows, list)
+
+    def test_name_search_runs(self):
+        from app.graph import queries
+
+        graph = self._graph()
+        rows = graph.query(
+            queries.SEARCH_CODE_SYMBOLS, {"query": "udf", "limit": 5}
+        ).result_set
+        assert isinstance(rows, list)
+
+    def test_owner_lookup_runs(self):
+        from app.graph import queries
+
+        graph = self._graph()
+        rows = graph.query(
+            queries.GET_SYMBOL_FILE,
+            {"symbol_id": "repo_falkordb_falkordb::src/commands/udf.rs::function::graph_udf"},
+        ).result_set
+        assert isinstance(rows, list)

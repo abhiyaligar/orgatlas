@@ -29,7 +29,7 @@ from pathlib import Path
 from tree_sitter_deps import SMOKE_TEST, TREE_SITTER_PACKAGES
 
 REPO_ROOT = Path(__file__).resolve().parent
-TEMPLATE_NAME = "orgatlas-ingest"
+TEMPLATE_NAME = "orgatlas-ingest-ts"
 CPU_COUNT = 2
 MEMORY_MB = 4096
 MIN_FREE_DISK_MB = 4096
@@ -78,8 +78,7 @@ def build() -> None:
         .run_cmd(
             "python - <<'PY'\n"
             + SMOKE_TEST
-            + "PY",
-            envs={"PYTHONDONTWRITEBYTECODE": "1"},
+            + "PY"
         )
     )
 

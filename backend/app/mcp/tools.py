@@ -497,11 +497,24 @@ def describe_symbol(symbol_name: str, file_id: str = "") -> Dict[str, Any]:
 
     matches = result["matches"]
     first = matches[0]
+    # The signature and doc comment are the answer, so each entity carries its
+    # own detail rather than only an identifier.
     entities = [
         {
             "type": "Symbol",
             "id": match["symbol_id"],
             "name": match["name"],
+            "kind": match["kind"],
+            "signature": match["signature"],
+            "doc_comment": match["doc_comment"],
+            "documented": match["documented"],
+            "line": match["line"],
+            "visibility": match["visibility"],
+            "container": match["container"],
+            "file_id": match["file_id"],
+            "path": match["path"],
+            "changes_since_docs": match["changes_since_docs"],
+            "recent_history": match["recent_history"],
         }
         for match in matches
     ]
@@ -511,43 +524,31 @@ def describe_symbol(symbol_name: str, file_id: str = "") -> Dict[str, Any]:
                 {"type": "File", "id": match["file_id"], "name": match["path"]}
             )
 
+    documented = [m for m in matches if m["documented"]]
+    summary = (
+        f"{first['kind']} `{first['container']}::{first['name']}`"
+        if first["container"]
+        else f"{first['kind']} `{first['name']}`"
+    )
+    if first["path"]:
+        summary += f" in {first['path']}:{first['line']}"
+    if first["doc_comment"]:
+        summary += f" — {first['doc_comment'][:200]}"
+    else:
+        summary += " — no doc comment"
+
     return envelope(
-        summary=(
-            f"{first['kind']} `{first['container']}::{first['name']}`"
-            if first["container"]
-            else f"{first['kind']} `{first['name']}`"
-        )
-        + (
-            f" in {first['path']}:{first['line']}"
-            if first["path"]
-            else ""
-        ),
+        summary=summary,
         entities=entities,
-        subgraph={
-            "nodes": [
-                {"id": m["symbol_id"], "label": "Symbol", "name": m["name"]}
-                for m in matches
-            ]
-            + [
-                {"id": m["file_id"], "label": "File", "name": m["path"]}
-                for m in matches
-                if m["file_id"]
-            ],
-            "edges": [
-                {"id": f"declares_{m['file_id']}_{m['symbol_id']}",
-                 "source": m["symbol_id"], "target": m["file_id"],
-                 "type": "DECLARED_IN"}
-                for m in matches
-                if m["file_id"]
-            ],
-            "paths": [],
-        },
-        notes=list(result["notes"]) + list(result["guidance"]),
+        notes=list(result["notes"])
+        + [
+            f"{len(documented)} of {len(matches)} match(es) carry a doc comment."
+        ],
         actions=[
             "Open the file at the reported line and read the implementation.",
             "Use trace_change_origin on the file to see why it changed.",
         ],
-        confidence="partial" if not first["documented"] else "supported",
+        confidence="partial" if not documented else "supported",
     )
 
 

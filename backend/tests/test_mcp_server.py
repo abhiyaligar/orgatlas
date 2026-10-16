@@ -430,3 +430,145 @@ class TestSearchBounds:
             payload = tools_module.search_architecture_evidence("svc", limit=10_000)
 
         assert len(payload["entities"]) == MAX_RECORDS
+
+class TestSymbolToolsCarryTheirDetail:
+    """A describe_* tool that drops the doc comment answers nothing.
+
+    Both tools return the shared envelope, whose entity list must therefore
+    carry each match's signature, documentation and location rather than only
+    an identifier.
+    """
+
+    def _match(self, **overrides):
+        base = {
+            "symbol_id": "repo_x::src/f.rs::function:C:new",
+            "name": "new",
+            "kind": "function",
+            "signature": "pub fn new(&self) -> Self",
+            "doc_comment": "Builds an empty widget.",
+            "documented": True,
+            "line": 14,
+            "visibility": "pub",
+            "container": "Widget",
+            "language": "Rust",
+            "file_id": "repo_x::src/f.rs",
+            "path": "src/f.rs",
+            "repository_id": "repo_x",
+            "is_test": False,
+            "changes_since_docs": 0,
+            "recent_history": [{"sha": "s1", "subject": "init", "authored_at": "2024"}],
+        }
+        base.update(overrides)
+        return base
+
+    def test_describe_symbol_surfaces_signature_and_docs(self):
+        from app.mcp import tools as tools_module
+
+        with patch.object(tools_module, "_forensics") as forensics:
+            forensics.describe_symbol.return_value = {
+                "query": "new",
+                "file_id": "",
+                "match_count": 1,
+                "matches": [self._match()],
+                "guidance": [],
+                "notes": [],
+            }
+            payload = tools_module.describe_symbol("new")
+
+        entity = next(e for e in payload["entities"] if e["type"] == "Symbol")
+        assert entity["signature"] == "pub fn new(&self) -> Self"
+        assert entity["doc_comment"] == "Builds an empty widget."
+        assert entity["line"] == 14
+        assert entity["path"] == "src/f.rs"
+        assert "Builds an empty widget" in payload["summary"]
+
+    def test_undocumented_symbol_says_so_in_the_summary(self):
+        from app.mcp import tools as tools_module
+
+        with patch.object(tools_module, "_forensics") as forensics:
+            forensics.describe_symbol.return_value = {
+                "query": "new",
+                "file_id": "",
+                "match_count": 1,
+                "matches": [self._match(doc_comment="", documented=False)],
+                "guidance": ["None of these declarations carries a doc comment."],
+                "notes": [],
+            }
+            payload = tools_module.describe_symbol("new")
+
+        assert "no doc comment" in payload["summary"]
+        assert payload["confidence"] == "partial"
+
+    def test_ambiguous_name_lists_every_match_separately(self):
+        from app.mcp import tools as tools_module
+
+        with patch.object(tools_module, "_forensics") as forensics:
+            forensics.describe_symbol.return_value = {
+                "query": "new",
+                "file_id": "",
+                "match_count": 2,
+                "matches": [
+                    self._match(),
+                    self._match(
+                        symbol_id="repo_x::src/f.rs::function:Other:new",
+                        container="Other",
+                        doc_comment="",
+                        documented=False,
+                        line=22,
+                    ),
+                ],
+                "guidance": [],
+                "notes": ["'new' matches 2 declarations."],
+            }
+            payload = tools_module.describe_symbol("new")
+
+        symbols = [e for e in payload["entities"] if e["type"] == "Symbol"]
+        assert len(symbols) == 2
+        assert {s["container"] for s in symbols} == {"Widget", "Other"}
+        assert any("matches 2 declarations" in n for n in payload["risk_and_uncertainty_notes"])
+
+    def test_describe_symbol_refuses_on_unknown_name(self):
+        from app.mcp import tools as tools_module
+
+        with patch.object(tools_module, "_forensics") as forensics:
+            forensics.describe_symbol.return_value = {
+                "query": "nope",
+                "file_id": "",
+                "match_count": 0,
+                "matches": [],
+                "guidance": [],
+                "notes": ["No ingested declaration named 'nope'."],
+            }
+            payload = tools_module.describe_symbol("nope")
+
+        assert payload["advisory_only"] is True
+        assert any("exported declarations" in n for n in payload["risk_and_uncertainty_notes"])
+
+    def test_describe_file_names_its_provenance_and_symbols(self):
+        from app.mcp import tools as tools_module
+
+        with patch.object(tools_module, "_forensics") as forensics:
+            forensics.describe_file.return_value = {
+                "file_id": "repo_x::src/f.rs",
+                "path": "src/f.rs",
+                "name": "f.rs",
+                "language": "Rust",
+                "is_test": False,
+                "repository_id": "repo_x",
+                "summary": "Widget storage.",
+                "symbols": ["Widget", "new"],
+                "docs_source": "module",
+                "docs_at_sha": "abc",
+                "stale": False,
+                "changes_since_docs": 0,
+                "recent_shas": [],
+                "provenance": {"origin": "authored", "model": ""},
+                "raw_response": "",
+                "staleness_reason": "Description matches the file as of abc.",
+            }
+            payload = tools_module.describe_file("repo_x::src/f.rs")
+
+        assert payload["confidence"] == "supported"
+        assert any("authored" in n for n in payload["risk_and_uncertainty_notes"])
+        names = {e["name"] for e in payload["entities"] if e["type"] == "Symbol"}
+        assert names == {"Widget", "new"}
