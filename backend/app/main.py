@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.core.errors import OrgAtlasError, orgatlas_exception_handler
 from app.core.logging import setup_logging
 from app.graph.connection import graph_manager
+from app.mcp.server import mount_dev_only
 
 
 @asynccontextmanager
@@ -40,6 +41,10 @@ def create_app() -> FastAPI:
     app.add_exception_handler(OrgAtlasError, orgatlas_exception_handler)
 
     app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+
+    # Read-only MCP surface. Mounted only in development and never added to
+    # CORS_ORIGINS, so the browser client cannot reach it.
+    mount_dev_only(app)
 
     return app
 

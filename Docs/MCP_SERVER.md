@@ -47,6 +47,13 @@ This reduces avoidable irrelevant changes and accidental breakage. It does **not
 | Find owner and expertise | Service/repository/technology | Accountable team, maintainers, experienced contributors, and sources |
 | Get onboarding context | Engineering team or role | Systems, learning path, people, reading, incidents, and sources |
 | Search architecture evidence | Narrow text query and optional entity type | Ranked source-linked graph entities; not arbitrary database access |
+| Trace change origin | Ingested file node id (`repo_<name>::<path>`) | Change history, linked pull request and decision, coupled files, and provenance gaps |
+| Assess file risk | Path or prefix plus repository | Tracked files, churn hotspots, contributors, and test-churn signals |
+| Get repository dependency impact | Ingested repository id | Declared dependent repositories and the limits of that evidence |
+
+The final three tools are the repository-ingest forensics added in Track A. They
+use the same response contract and the same read-only boundary as the six
+originally specified tools.
 
 ## Response contract
 
@@ -66,9 +73,16 @@ Every tool returns structured content containing:
 - The server never exposes raw Cypher, database credentials, or an arbitrary query executor.
 - Tool inputs are validated and translated to parameterized allowlisted graph retrieval.
 - Outputs are bounded by traversal depth, result count, and response size.
-- Every external client is authenticated and authorized separately from the public demo UI.
+- Every external client is authenticated and authorized separately from the public demo UI. Until that authorization layer exists, the `/mcp` route mounts **only** when `ENVIRONMENT` is `development`, it is never added to the browser CORS allowlist, and startup fails loudly if `MCP_API_TOKEN` is configured without a verifier.
 - Tool descriptions must clearly disclose that results are advisory context, not change approval.
 - Access logging records tool name, requested entity identifiers, caller identity, latency, and errors; it excludes secrets and unnecessary source content.
+
+## Implementation notes
+
+- The server uses `mcp.server.mcpserver.MCPServer` (the `FastMCP` name was removed in the 2.x SDK).
+- `MCPServer.streamable_http_app()` already routes `/mcp` internally, so it is mounted at the host root and requests for `/mcp` fall through to it. Mounting it *under* `/mcp` would produce `/mcp/mcp`.
+- Starlette does not forward lifespan events to mounted applications, so the MCP session-manager lifespan is composed into the host application's lifespan.
+- DNS-rebinding protection stays enabled; only loopback hosts and origins are allowed on the development route.
 
 ## Deployment boundary
 
