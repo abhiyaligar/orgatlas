@@ -118,6 +118,11 @@ def generate_seed_queries(fixtures: Dict[str, Any]) -> List[str]:
         )
 
     # 6. Services, OWNS, USES, PRIMARY_IMPLEMENTATION_OF, DEPENDS_ON
+    #
+    # Every Service node is created before any edge between two services is
+    # emitted. Matching an edge requires both endpoints to exist, so a single
+    # interleaved pass would silently drop any dependency on a service defined
+    # later in the fixture list.
     for svc in fixtures["services"]:
         queries.append(
             f"MERGE (s:Service {{id: {cypher_literal(svc['id'])}}}) "
@@ -137,6 +142,9 @@ def generate_seed_queries(fixtures: Dict[str, Any]) -> List[str]:
                 f"MATCH (s:Service {{id: {cypher_literal(svc['id'])}}}), "
                 f"(tech:Technology {{id: {cypher_literal(tech_id)}}}) MERGE (s)-[:USES]->(tech)"
             )
+
+    # Second pass: service-to-service dependencies, once both nodes exist.
+    for svc in fixtures["services"]:
         for dep_id in svc.get("dependency_ids", []):
             queries.append(
                 f"MATCH (s:Service {{id: {cypher_literal(svc['id'])}}}), "
