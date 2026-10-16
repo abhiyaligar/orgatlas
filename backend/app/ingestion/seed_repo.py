@@ -82,7 +82,15 @@ SET f.path = row.path,
     f.summary = row.summary,
     f.symbols = row.symbols,
     f.docs_source = row.docs_source,
-    f.docs_at_sha = row.docs_at_sha
+    f.docs_at_sha = row.docs_at_sha,
+    f.docs_model = row.docs_model,
+    f.docs_generated_at = row.docs_generated_at,
+    f.docs_input_sha = row.docs_input_sha,
+    f.docs_trigger = row.docs_trigger,
+    f.docs_usage = row.docs_usage,
+    f.docs_raw_response = row.docs_raw_response,
+    f.docs_prompt_version = row.docs_prompt_version,
+    f.docs_error = row.docs_error
 """
 
 UPSERT_CODEOWNER_PATH = """
@@ -253,6 +261,17 @@ def build_batches(payload: dict[str, Any]) -> list[tuple[str, list[dict[str, Any
                 "symbols": json.dumps(symbols[:25]),
                 "docs_source": record.get("docs_source") or "none",
                 "docs_at_sha": record.get("docs_at_sha") or "",
+                # A fresh scan must not inherit a previous model's answer, so
+                # every model-owned field is cleared here and only the fallback
+                # pass writes it back.
+                "docs_model": "",
+                "docs_generated_at": "",
+                "docs_input_sha": "",
+                "docs_trigger": "",
+                "docs_usage": "",
+                "docs_raw_response": "",
+                "docs_prompt_version": "",
+                "docs_error": "",
             }
         )
 
@@ -382,14 +401,38 @@ def cache_payload(payload: dict[str, Any]) -> Path | None:
         return None
 
 
-def ingest_repository(url: str, on_stage=None) -> dict[str, Any]:
-    """Run the full pipeline: sandbox scan, then batched graph write."""
+def ingest_repository(url: str, on_stage=None, run_model_fallback: bool = True) -> dict[str, Any]:
+    """Run the full pipeline: sandbox scan, batched graph write, model fallback.
+
+    Authored documentation is written first and is never overwritten by the
+    model. The fallback only fills files their authors left undescribed, and
+    only when a usable provider key is configured.
+    """
+    from app.services.file_describer import estimate_calls, run_fallback
+
     request = ScanRequest(
         repository_url=url,
         commit_depth=int(settings.INGEST_COMMIT_DEPTH or 0),
     )
     result = run_scan(request, on_stage=on_stage)
     cache_payload(result.payload)
+
+    if on_stage is not None:
+        estimate = estimate_calls(result.payload)
+        on_stage(
+            f"scan produced {estimate['total_files']} files: "
+            f"{estimate['already_described']} documented by their authors, "
+            f"{estimate['gap_files']} needing the model"
+        )
+
     summary = write_payload(result.payload, on_stage=on_stage)
     summary["sandbox_id"] = result.sandbox_id
+
+    repository_id = repository_id_for(url)
+    summary["descriptions"] = run_fallback(
+        result.payload,
+        repository_id,
+        dry_run=not run_model_fallback,
+        on_stage=on_stage,
+    )
     return summary

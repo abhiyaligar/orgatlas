@@ -232,7 +232,15 @@ RETURN f.path AS path,
        coalesce(f.symbols, '[]') AS symbols,
        coalesce(f.docs_source, 'none') AS docs_source,
        coalesce(f.docs_at_sha, '') AS docs_at_sha,
-       coalesce(f.repository_id, '') AS repository_id
+       coalesce(f.repository_id, '') AS repository_id,
+       coalesce(f.docs_model, '') AS docs_model,
+       coalesce(f.docs_generated_at, '') AS docs_generated_at,
+       coalesce(f.docs_input_sha, '') AS docs_input_sha,
+       coalesce(f.docs_trigger, '') AS docs_trigger,
+       coalesce(f.docs_usage, '') AS docs_usage,
+       coalesce(f.docs_raw_response, '') AS docs_raw_response,
+       coalesce(f.docs_prompt_version, '') AS docs_prompt_version,
+       coalesce(f.docs_error, '') AS docs_error
 LIMIT 1
 """
 

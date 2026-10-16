@@ -191,6 +191,19 @@ class FileTimelineResponse(BaseModel):
     graph: EvidenceSubgraph = Field(default_factory=EvidenceSubgraph)
 
 
+class DescriptionProvenance(BaseModel):
+    """Who wrote a description, with the model audit trail when generated."""
+
+    origin: str
+    model: str = ""
+    generated_at: str = ""
+    input_sha: str = ""
+    trigger: str = ""
+    prompt_version: str = ""
+    usage: Dict[str, Any] = Field(default_factory=dict)
+    error: str = ""
+
+
 class FileDescriptionResponse(BaseModel):
     """A file described from the documentation its authors wrote."""
 
@@ -208,6 +221,8 @@ class FileDescriptionResponse(BaseModel):
     staleness_reason: str
     changes_since_docs: int = 0
     recent_shas: List[str] = Field(default_factory=list)
+    provenance: DescriptionProvenance = Field(default_factory=DescriptionProvenance)
+    raw_response: str = ""
 
 
 class ChurnResponse(BaseModel):

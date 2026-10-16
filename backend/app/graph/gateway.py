@@ -292,6 +292,14 @@ class GraphGateway:
             "docs_source": row[6],
             "docs_at_sha": row[7],
             "repository_id": row[8],
+            "docs_model": row[9],
+            "docs_generated_at": row[10],
+            "docs_input_sha": row[11],
+            "docs_trigger": row[12],
+            "docs_usage": row[13],
+            "docs_raw_response": row[14],
+            "docs_prompt_version": row[15],
+            "docs_error": row[16],
         }
 
     def get_commit_authored_at(self, sha: str) -> Optional[str]:

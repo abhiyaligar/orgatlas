@@ -14,6 +14,7 @@ does not modify the repository or the graph.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -24,6 +25,22 @@ from app.graph.gateway import GraphGateway, graph_gateway
 from app.services.onboarding_service import parse_stored_list
 
 logger = logging.getLogger(__name__)
+
+# docs_source values produced by extracting what the file's authors wrote.
+AUTHORED_SOURCES = frozenset({"module", "item", "declaration", "heading", "key"})
+
+
+def _parse_usage(value: Any) -> Dict[str, Any]:
+    """Read the token-usage object FalkorDB stored as a JSON string."""
+    if isinstance(value, dict):
+        return value
+    if not value or not str(value).strip():
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def repository_id_for_path(path: str) -> str:
@@ -273,6 +290,19 @@ class ChangeForensicsService:
             "stale": False,
             "changes_since_docs": 0,
             "recent_shas": [],
+            "provenance": {
+                "origin": "authored" if record["docs_source"] in AUTHORED_SOURCES else "model"
+                if record["docs_source"] == "model"
+                else "none",
+                "model": record.get("docs_model") or "",
+                "generated_at": record.get("docs_generated_at") or "",
+                "input_sha": record.get("docs_input_sha") or "",
+                "trigger": record.get("docs_trigger") or "",
+                "prompt_version": record.get("docs_prompt_version") or "",
+                "usage": _parse_usage(record.get("docs_usage")),
+                "error": record.get("docs_error") or "",
+            },
+            "raw_response": record.get("docs_raw_response") or "",
         }
 
         if not docs_at_sha:
