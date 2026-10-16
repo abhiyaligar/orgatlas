@@ -35,6 +35,11 @@ MAX_SYMBOLS = 25
 DEFAULT_TIMEOUT_SECONDS = 30
 DEFAULT_MAX_RETRIES = 2
 
+# GLM-5.3-Flash is a reasoning model: it spends completion tokens on
+# reasoning_content before emitting any answer. A tight budget silently returns
+# an empty completion, so the allowance must leave real headroom.
+DEFAULT_MAX_TOKENS = 2048
+
 _JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 
 PROMPT_TEMPLATE = """\
@@ -161,14 +166,24 @@ def _normalise_usage(usage: Any) -> Dict[str, Any]:
             break
     if not isinstance(usage, dict):
         return {}
-    return {
+    normalised = {
         key: usage.get(key)
         for key in ("prompt_tokens", "completion_tokens", "total_tokens")
         if usage.get(key) is not None
     }
+    # A reasoning model bills for thinking tokens, so they must be visible.
+    details = usage.get("completion_tokens_details") or {}
+    if isinstance(details, dict) and details.get("reasoning_tokens") is not None:
+        normalised["reasoning_tokens"] = details["reasoning_tokens"]
+    return normalised
 
 
-def _chat(messages: List[Dict[str, str]], timeout: int, max_retries: int) -> Any:
+def _chat(
+    messages: List[Dict[str, str]],
+    timeout: int,
+    max_retries: int,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+) -> Any:
     """One chat completion, retried on transient provider errors."""
     from openai import OpenAI
 
@@ -189,7 +204,7 @@ def _chat(messages: List[Dict[str, str]], timeout: int, max_retries: int) -> Any
                 model=settings.NEBIUS_MODEL_NAME,
                 messages=messages,
                 temperature=0.1,
-                max_tokens=400,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"},
             )
         except Exception as exc:  # provider/transport errors are all typed
@@ -219,6 +234,7 @@ def describe_file(
     *,
     timeout: int = DEFAULT_TIMEOUT_SECONDS,
     max_retries: int = DEFAULT_MAX_RETRIES,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> Result:
     """Describe one file with the configured model.
 
@@ -245,7 +261,7 @@ def describe_file(
     ]
 
     try:
-        completion = _chat(messages, timeout, max_retries)
+        completion = _chat(messages, timeout, max_retries, max_tokens)
     except ModelCallError as exc:
         logger.warning("model call failed for %s: %s", path, exc)
         return ModelFailure(reason="provider_error", detail=str(exc)[:400])
@@ -257,7 +273,24 @@ def describe_file(
     if not choices:
         return ModelFailure(reason="empty_response", detail="provider returned no choices")
 
-    raw_content = getattr(choices[0].message, "content", None) or ""
+    choice = choices[0]
+    raw_content = getattr(choice.message, "content", None) or ""
+
+    if not raw_content.strip():
+        # A reasoning model can spend the whole completion budget thinking and
+        # return nothing. That is a budget problem, not a malformed reply.
+        finish = getattr(choice, "finish_reason", None)
+        reasoning = getattr(choice.message, "reasoning_content", None) or ""
+        if finish in ("length", "max_tokens") or reasoning:
+            return ModelFailure(
+                reason="reasoning_budget_exhausted",
+                detail=(
+                    f"finish_reason={finish}; the model spent its completion budget "
+                    "reasoning and returned no answer"
+                ),
+            )
+        return ModelFailure(reason="empty_response", detail="provider returned no content")
+
     parsed = parse_response(raw_content)
     if parsed is None:
         return ModelFailure(

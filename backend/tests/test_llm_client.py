@@ -202,3 +202,65 @@ class TestPromptAndBounds:
                 with pytest.raises(llm_client.ModelCallError):
                     llm_client._chat([{"role": "user", "content": "x"}], 5, 0)
         assert calls
+
+class TestReasoningModelBudget:
+    """GLM-5.3-Flash spends completion tokens reasoning before answering.
+
+    A tight budget returns an empty completion, which must be reported as a
+    budget problem rather than a malformed reply.
+    """
+
+    def _budget_burned(self):
+        completion = _completion("", {"completion_tokens": 400, "total_tokens": 626})
+        choice = completion.choices[0]
+        choice.finish_reason = "length"
+        choice.message.reasoning_content = "Let me analyze this file."
+        return completion
+
+    def test_empty_content_after_reasoning_is_a_budget_problem(self):
+        with _patched_chat(self._budget_burned()):
+            result = describe_file(RUST_SOURCE, "src/graph.rs")
+
+        assert isinstance(result, ModelFailure)
+        assert result.reason == "reasoning_budget_exhausted"
+        assert "reasoning" in result.detail
+
+    def test_budget_is_generous_by_default(self):
+        assert llm_client.DEFAULT_MAX_TOKENS >= 1024
+
+    def test_reasoning_tokens_are_reported_in_usage(self):
+        usage = {
+            "prompt_tokens": 226,
+            "completion_tokens": 440,
+            "total_tokens": 666,
+            "completion_tokens_details": {"reasoning_tokens": 352},
+        }
+        with _patched_chat(_completion('{"summary": "ok", "symbols": []}', usage)):
+            result = describe_file(RUST_SOURCE, "src/graph.rs")
+
+        assert result.usage["reasoning_tokens"] == 352
+        assert result.usage["total_tokens"] == 666
+
+    def test_reasoning_tokens_absent_is_not_invented(self):
+        with _patched_chat(_completion('{"summary": "ok", "symbols": []}',
+                                      {"prompt_tokens": 1, "total_tokens": 2})):
+            result = describe_file(RUST_SOURCE, "src/graph.rs")
+        assert "reasoning_tokens" not in result.usage
+
+    def test_empty_content_without_reasoning_is_plainly_empty(self):
+        completion = _completion("")
+        completion.choices[0].finish_reason = "stop"
+        completion.choices[0].message.reasoning_content = None
+        with _patched_chat(completion):
+            result = describe_file(RUST_SOURCE, "src/graph.rs")
+
+        assert result.reason == "empty_response"
+
+    def test_max_tokens_is_forwarded_to_the_provider(self):
+        with patch("openai.OpenAI") as openai_cls:
+            create = openai_cls.return_value.chat.completions.create
+            create.return_value = _completion('{"summary": "ok", "symbols": []}')
+            result = describe_file(RUST_SOURCE, "src/graph.rs", max_tokens=1234)
+
+        assert create.call_args.kwargs["max_tokens"] == 1234
+        assert isinstance(result, ModelDescription)
