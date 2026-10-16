@@ -150,3 +150,80 @@ class RepositorySummary(BaseModel):
 
 
 RepositorySummary.model_rebuild()
+
+
+class Contributor(BaseModel):
+    author_id: str = ""
+    author: str = ""
+    commits: int = 0
+
+
+class CommitSummary(BaseModel):
+    sha: str
+    message: str = ""
+    authored_at: Optional[str] = None
+    pr_number: Optional[int] = None
+    author: str = ""
+    paths: List[str] = Field(default_factory=list)
+
+
+class FileChurn(BaseModel):
+    file_id: str
+    path: str
+    is_test: bool = False
+    changes: int = 0
+
+
+class DependencyRef(BaseModel):
+    id: str
+    name: str = ""
+    url: Optional[str] = None
+
+
+class FileTimelineResponse(BaseModel):
+    file_id: str
+    path: str
+    repository_id: str
+    change_count: int
+    history: List[CommitSummary]
+    contributors: List[Contributor]
+    citations: List[Citation]
+    graph: EvidenceSubgraph = Field(default_factory=EvidenceSubgraph)
+
+
+class ChurnResponse(BaseModel):
+    repository_id: str
+    path_prefix: str = ""
+    files: List[FileChurn]
+    hotspots: List[FileChurn]
+
+
+class CoupledFile(BaseModel):
+    file_id: str
+    path: str
+    shared_commits: int
+
+
+class CouplingResponse(BaseModel):
+    file_id: str
+    path: str
+    coupled: List[CoupledFile]
+    advice: str
+
+
+class InvestigationBriefResponse(BaseModel):
+    repository_id: str
+    path_prefix: str = ""
+    hotspots: List[FileChurn]
+    contributors: List[Contributor]
+    dependency_blast_radius: List[DependencyRef]
+    guidance: List[str]
+
+
+class ProvenanceResponse(BaseModel):
+    commit: CommitSummary
+    decisions: List[Dict[str, Any]] = Field(default_factory=list)
+    citations: List[Citation] = Field(default_factory=list)
+    gaps: List[str] = Field(default_factory=list)
+    confidence: str = "insufficient"
+    graph: EvidenceSubgraph = Field(default_factory=EvidenceSubgraph)

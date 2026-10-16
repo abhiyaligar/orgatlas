@@ -7,6 +7,25 @@ from app.core.errors import GraphQueryError, OrgAtlasError
 
 logger = logging.getLogger(__name__)
 
+MAX_LIMIT = 200
+
+
+def clamp_limit(limit: int | None, ceiling: int = MAX_LIMIT) -> int:
+    """Clamp a caller-supplied limit into a safe range before it reaches Cypher."""
+    try:
+        value = int(limit) if limit is not None else ceiling
+    except (TypeError, ValueError):
+        return ceiling
+    return max(1, min(value, ceiling))
+
+
+_BOT_MARKERS = ("[bot]", "dependabot", "renovate", "github-actions")
+
+
+def _is_automation(name: str) -> bool:
+    lowered = (name or "").lower()
+    return any(marker in lowered for marker in _BOT_MARKERS)
+
 
 class GraphGateway:
     """Gateway for executing parameterized and bounded OpenCypher queries on FalkorDB."""
@@ -95,6 +114,142 @@ class GraphGateway:
             return []
         rows = self._execute(queries.GET_DOCUMENTS_BY_IDS, {"doc_ids": list(doc_ids)})
         return [row[0] for row in rows if row and row[0] is not None]
+
+    # --- Repository forensics -------------------------------------------------
+
+    def get_file_history(self, file_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        rows = self._execute(
+            queries.GET_FILE_HISTORY, {"file_id": file_id, "limit": clamp_limit(limit)}
+        )
+        return [
+            {
+                "sha": row[0],
+                "message": row[1],
+                "authored_at": row[2],
+                "pr_number": row[3],
+                "author_id": row[4],
+                "author": row[5],
+            }
+            for row in rows
+            if not _is_automation(row[5])
+        ]
+
+    def get_file_churn(
+        self, repository_id: str, path_prefix: str = "", limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        rows = self._execute(
+            queries.GET_FILE_CHURN,
+            {
+                "repository_id": repository_id,
+                "path_prefix": path_prefix or "",
+                "limit": clamp_limit(limit),
+            },
+        )
+        return [
+            {"file_id": row[0], "path": row[1], "is_test": row[2], "changes": row[3]}
+            for row in rows
+        ]
+
+    def get_files_changed_since(
+        self, repository_id: str, since: str, limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        rows = self._execute(
+            queries.GET_FILES_CHANGED_SINCE,
+            {"repository_id": repository_id, "since": since, "limit": clamp_limit(limit)},
+        )
+        return [{"file_id": row[0], "path": row[1], "changes": row[2]} for row in rows]
+
+    def get_path_contributors(
+        self, repository_id: str, path_prefix: str, limit: int = 25
+    ) -> List[Dict[str, Any]]:
+        rows = self._execute(
+            queries.GET_PATH_CONTRIBUTORS,
+            {
+                "repository_id": repository_id,
+                "path_prefix": path_prefix,
+                "limit": clamp_limit(limit),
+            },
+        )
+        return [
+            {"author_id": row[0], "author": row[1], "commits": row[2]}
+            for row in rows
+            if not _is_automation(row[1])
+        ]
+
+    def get_commits_for_path(
+        self, repository_id: str, path_prefix: str, limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        rows = self._execute(
+            queries.GET_COMMITS_FOR_PATH,
+            {
+                "repository_id": repository_id,
+                "path_prefix": path_prefix,
+                "limit": clamp_limit(limit),
+            },
+        )
+        return [
+            {
+                "sha": row[0],
+                "message": row[1],
+                "authored_at": row[2],
+                "pr_number": row[3],
+                "paths": row[4] or [],
+            }
+            for row in rows
+        ]
+
+    def get_dependency_impact(
+        self, repository_id: str, limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        rows = self._execute(
+            queries.GET_DEPENDENCY_IMPACT,
+            {"repository_id": repository_id, "limit": clamp_limit(limit)},
+        )
+        return [{"id": row[0], "name": row[1], "url": row[2]} for row in rows]
+
+    def get_commit_detail(self, commit_id: str) -> Optional[Dict[str, Any]]:
+        rows = self._execute(queries.GET_COMMIT_DETAIL, {"commit_id": commit_id})
+        if not rows:
+            return None
+        row = rows[0]
+        return {
+            "sha": row[0],
+            "message": row[1],
+            "authored_at": row[2],
+            "pr_number": row[3],
+            "author_id": row[4],
+            "author": row[5],
+            "repository_id": row[6],
+        }
+
+    def get_change_coupling(
+        self, file_id: str, limit: int = 25
+    ) -> List[Dict[str, Any]]:
+        rows = self._execute(
+            queries.GET_CHANGE_COUPLING, {"file_id": file_id, "limit": clamp_limit(limit)}
+        )
+        return [
+            {"file_id": row[0], "path": row[1], "shared_commits": row[2]}
+            for row in rows
+        ]
+
+    def repository_exists(self, repository_id: str) -> bool:
+        rows = self._execute(queries.GET_REPOSITORY, {"repository_id": repository_id})
+        return bool(rows)
+
+    def list_repositories(self, limit: int = 50) -> List[Dict[str, Any]]:
+        rows = self._execute(queries.LIST_REPOSITORIES, {"limit": clamp_limit(limit)})
+        return [
+            {
+                "id": row[0],
+                "name": row[1],
+                "url": row[2],
+                "source": row[3],
+                "commit_count": row[4],
+                "file_count": row[5],
+            }
+            for row in rows
+        ]
 
     def get_entity_detail(self, entity_id: str) -> Optional[Dict[str, Any]]:
         rows = self._execute(queries.GET_ENTITY_DETAIL, {"entity_id": entity_id})

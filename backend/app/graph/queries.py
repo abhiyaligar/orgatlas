@@ -100,3 +100,123 @@ RETURN n.id AS id,
        properties(n) AS properties
 LIMIT 20
 """
+
+# --- Repository forensics queries -------------------------------------------
+# Every value is parameterised and every traversal is bounded.
+
+# 9. Change history for one file, newest first, with its attributed author
+GET_FILE_HISTORY = """
+MATCH (f:File {id: $file_id})<-[:MODIFIES]-(c:Commit)
+OPTIONAL MATCH (a)-[:AUTHORED]->(c)
+RETURN c.id AS sha,
+       c.message AS message,
+       c.authored_at AS authored_at,
+       c.pr_number AS pr_number,
+       coalesce(a.id, '') AS author_id,
+       coalesce(a.username, c.author_name, '') AS author
+ORDER BY c.authored_at DESC
+LIMIT $limit
+"""
+
+# 10. Churn ranking: which files changed most, optionally within a path prefix
+GET_FILE_CHURN = """
+MATCH (r:Repository {id: $repository_id})-[:HAS_COMMIT]->(c:Commit)-[:MODIFIES]->(f:File)
+WHERE $path_prefix = '' OR f.path STARTS WITH $path_prefix
+RETURN f.id AS file_id,
+       f.path AS path,
+       f.is_test AS is_test,
+       count(c) AS changes
+ORDER BY changes DESC
+LIMIT $limit
+"""
+
+# 11. Files touched since a point in time, for correlating with an incident
+GET_FILES_CHANGED_SINCE = """
+MATCH (r:Repository {id: $repository_id})-[:HAS_COMMIT]->(c:Commit)-[:MODIFIES]->(f:File)
+WHERE c.authored_at >= $since
+RETURN f.id AS file_id,
+       f.path AS path,
+       count(c) AS changes
+ORDER BY changes DESC
+LIMIT $limit
+"""
+
+# 12. Who has worked on a path
+GET_PATH_CONTRIBUTORS = """
+MATCH (r:Repository {id: $repository_id})-[:HAS_COMMIT]->(c:Commit)-[:MODIFIES]->(f:File)
+WHERE f.path STARTS WITH $path_prefix
+OPTIONAL MATCH (a)-[:AUTHORED]->(c)
+RETURN coalesce(a.id, '') AS author_id,
+       coalesce(a.username, c.author_name, '') AS author,
+       count(DISTINCT c) AS commits
+ORDER BY commits DESC
+LIMIT $limit
+"""
+
+# 13. Commits touching a module or file path
+GET_COMMITS_FOR_PATH = """
+MATCH (r:Repository {id: $repository_id})-[:HAS_COMMIT]->(c:Commit)-[:MODIFIES]->(f:File)
+WHERE f.path STARTS WITH $path_prefix
+RETURN c.id AS sha,
+       c.message AS message,
+       c.authored_at AS authored_at,
+       c.pr_number AS pr_number,
+       collect(DISTINCT f.path) AS paths
+ORDER BY c.authored_at DESC
+LIMIT $limit
+"""
+
+# 14. Bounded cross-repository blast radius
+GET_DEPENDENCY_IMPACT = """
+MATCH (r:Repository {id: $repository_id})-[:DEPENDS_ON_REPO*1..2]->(dep:Repository)
+RETURN dep.id AS id,
+       dep.name AS name,
+       coalesce(dep.url, '') AS url
+LIMIT $limit
+"""
+
+# 15. Single commit with its author, for provenance tracing
+GET_COMMIT_DETAIL = """
+MATCH (c:Commit {id: $commit_id})
+OPTIONAL MATCH (a)-[:AUTHORED]->(c)
+OPTIONAL MATCH (r:Repository)-[:HAS_COMMIT]->(c)
+RETURN c.id AS sha,
+       c.message AS message,
+       c.authored_at AS authored_at,
+       c.pr_number AS pr_number,
+       coalesce(a.id, '') AS author_id,
+       coalesce(a.username, c.author_name, '') AS author,
+       coalesce(r.id, '') AS repository_id
+LIMIT 1
+"""
+
+# 16. Files sharing the most commits with a given file (change coupling)
+GET_CHANGE_COUPLING = """
+MATCH (f:File {id: $file_id})<-[:MODIFIES]-(c:Commit)-[:MODIFIES]->(other:File)
+WHERE other.id <> $file_id
+RETURN other.id AS file_id, other.path AS path, count(c) AS shared_commits
+ORDER BY shared_commits DESC
+LIMIT $limit
+"""
+
+# 17. Ingested repositories with their commit and file counts
+LIST_REPOSITORIES = """
+MATCH (r:Repository)
+OPTIONAL MATCH (r)-[:HAS_COMMIT]->(c:Commit)
+OPTIONAL MATCH (c)-[:MODIFIES]->(f:File)
+RETURN r.id AS id,
+       coalesce(r.name, '') AS name,
+       coalesce(r.url, '') AS url,
+       coalesce(r.source, '') AS source,
+       count(DISTINCT c) AS commits,
+       count(DISTINCT f) AS files
+ORDER BY commits DESC
+LIMIT $limit
+"""
+
+# 18. Existence check for a repository
+GET_REPOSITORY = """
+MATCH (r:Repository {id: $repository_id})
+RETURN r.id AS id, coalesce(r.name, '') AS name
+LIMIT 1
+"""

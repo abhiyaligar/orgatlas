@@ -11,10 +11,22 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.schemas import IngestJobResponse, IngestRequest, RepositorySummary
+from app.api.schemas import (
+    ChurnResponse,
+    CommitSummary,
+    CouplingResponse,
+    FileTimelineResponse,
+    IngestJobResponse,
+    IngestRequest,
+    InvestigationBriefResponse,
+    ProvenanceResponse,
+    RepositorySummary,
+)
 from app.core.dependencies import get_db
 from app.db.models import IngestJob
 from app.ingestion.sandbox_client import SandboxError, SandboxUnavailableError
+from app.services.change_forensics_service import ChangeForensicsService
+from app.services.commit_provenance_service import CommitProvenanceService
 
 router = APIRouter(prefix="/repos", tags=["Repositories"])
 logger = logging.getLogger(__name__)
@@ -118,19 +130,91 @@ async def get_ingest_job(job_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("", response_model=list[RepositorySummary])
-async def list_repositories(db: Session = Depends(get_db)):
-    """List ingested repositories and their direct dependency edges."""
+async def list_repositories():
+    """List ingested repositories with their commit and file counts."""
     from app.graph.gateway import graph_gateway
 
-    rows = graph_gateway.search_entities("http")
-    repositories = [
-        RepositorySummary(
-            id=row["id"],
-            name=row["name"],
-            url=row["properties"].get("url", ""),
-            source=row["properties"].get("source"),
+    rows = graph_gateway.list_repositories()
+    summaries = []
+    for row in rows:
+        summary = RepositorySummary(
+            id=row["id"], name=row["name"], url=row["url"], source=row["source"] or None
         )
-        for row in rows
-        if row.get("label") == "Repository" and row.get("id", "").startswith("repo_")
-    ]
-    return repositories
+        summary.commit_count = row["commit_count"]
+        summary.file_count = row["file_count"]
+        summaries.append(summary)
+    return summaries
+
+
+# --- Read-only forensics -----------------------------------------------------
+# These answer questions a developer or coding agent asks mid-task. They never
+# write, and every traversal is bounded.
+
+_forensics = ChangeForensicsService()
+_provenance = CommitProvenanceService()
+
+
+def _require_repository(repository_id: str) -> None:
+    from app.graph.gateway import graph_gateway
+
+    if not graph_gateway.repository_exists(repository_id):
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Repository '{repository_id}' is not in the knowledge graph. "
+                "Ingest it first via POST /api/repos/ingest."
+            ),
+        )
+
+
+@router.get("/{repository_id}/brief", response_model=InvestigationBriefResponse)
+async def get_investigation_brief(repository_id: str, path_prefix: str = ""):
+    """Where to start in an unfamiliar area: volatile files, owners, blast radius."""
+    _require_repository(repository_id)
+    return _forensics.investigation_brief(repository_id, path_prefix=path_prefix)
+
+
+@router.get("/{repository_id}/churn", response_model=ChurnResponse)
+async def get_file_churn(repository_id: str, path_prefix: str = "", limit: int = 25):
+    """Rank files by how often they change."""
+    _require_repository(repository_id)
+    return _forensics.churn_ranking(repository_id, path_prefix=path_prefix, limit=limit)
+
+
+@router.get("/file/timeline", response_model=FileTimelineResponse)
+async def get_file_timeline(file_id: str, limit: int = 50):
+    """Who changed a file, when, and through which pull request."""
+    result = _forensics.file_timeline(file_id, limit=limit)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No ingested history for file '{file_id}'. Ingest the repository first.",
+        )
+    result["graph"] = _forensics.evidence.truncate_subgraph(result["graph"])
+    return result
+
+
+@router.get("/file/coupling", response_model=CouplingResponse)
+async def get_file_coupling(file_id: str, limit: int = 15):
+    """Files that historically change in the same commits as this one."""
+    return _forensics.coupled_files(file_id, limit=limit)
+
+
+@router.get("/{repository_id}/commits", response_model=list[CommitSummary])
+async def get_module_commits(repository_id: str, path_prefix: str, limit: int = 50):
+    """Recent commits touching a module or directory."""
+    _require_repository(repository_id)
+    return _forensics.module_history(
+        repository_id, path_prefix=path_prefix, limit=limit
+    )["commits"]
+
+
+@router.get("/commit/{commit_id}", response_model=ProvenanceResponse)
+async def get_commit_provenance(commit_id: str):
+    """Trace a commit to its author, pull request, decisions and sources."""
+    result = _provenance.trace(commit_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404, detail=f"Commit '{commit_id}' is not in the knowledge graph."
+        )
+    return result
