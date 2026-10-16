@@ -45,6 +45,31 @@ SET i.username = row.username,
     i.provider = row.provider
 """
 
+UPSERT_CODE_SYMBOL = """
+UNWIND $rows AS row
+MERGE (s:CodeSymbol {id: row.id})
+SET s.name = row.name,
+    s.kind = row.kind,
+    s.signature = row.signature,
+    s.doc_comment = row.doc_comment,
+    s.documented = row.documented,
+    s.line = row.line,
+    s.end_line = row.end_line,
+    s.visibility = row.visibility,
+    s.container = row.container,
+    s.language = row.language,
+    s.repository_id = row.repository_id,
+    s.docs_at_sha = row.docs_at_sha
+"""
+
+LINK_FILE_SYMBOL = """
+UNWIND $rows AS row
+MATCH (f:File {id: row.file_id})
+MATCH (s:CodeSymbol {id: row.symbol_id})
+MERGE (f)-[:DECLARES]->(s)
+RETURN count(*) AS linked
+"""
+
 LINK_PERSON_IDENTITY = """
 UNWIND $rows AS row
 MATCH (p:Person {id: row.person_id})
@@ -244,6 +269,9 @@ def build_batches(payload: dict[str, Any]) -> list[tuple[str, list[dict[str, Any
     module_seen: set[str] = set()
     file_rows: list[dict[str, Any]] = []
     module_file_rows: list[dict[str, Any]] = []
+    symbol_rows: list[dict[str, Any]] = []
+    file_symbol_rows: list[dict[str, Any]] = []
+    seen_symbol_ids: set[str] = set()
 
     for record in payload.get("files", []):
         path = record["path"]
@@ -290,6 +318,38 @@ def build_batches(payload: dict[str, Any]) -> list[tuple[str, list[dict[str, Any
                 )
             module_file_rows.append({"module_id": module_id, "file_id": file_id})
 
+        for declaration in record.get("declarations") or []:
+            name = declaration.get("name")
+            if not name:
+                continue
+            container = declaration.get("container") or ""
+            # The container is part of the identity so the same method name in
+            # two impl blocks of one type stays two distinct symbols.
+            symbol_id = (
+                f"{file_id}::{declaration.get('kind', 'symbol')}:{container}:{name}"
+            )
+            if symbol_id in seen_symbol_ids:
+                continue
+            seen_symbol_ids.add(symbol_id)
+            symbol_rows.append(
+                {
+                    "id": symbol_id,
+                    "name": name,
+                    "kind": declaration.get("kind") or "symbol",
+                    "signature": declaration.get("signature") or "",
+                    "doc_comment": declaration.get("doc_comment") or "",
+                    "documented": bool(declaration.get("documented")),
+                    "line": int(declaration.get("line") or 0),
+                    "end_line": int(declaration.get("end_line") or 0),
+                    "visibility": declaration.get("visibility") or "",
+                    "container": container,
+                    "language": record.get("language") or "",
+                    "repository_id": repository_id,
+                    "docs_at_sha": record.get("docs_at_sha") or "",
+                }
+            )
+            file_symbol_rows.append({"file_id": file_id, "symbol_id": symbol_id})
+
     commit_rows: list[dict[str, Any]] = []
     repo_commit_rows: list[dict[str, Any]] = []
     authored_rows: list[dict[str, Any]] = []
@@ -330,7 +390,6 @@ def build_batches(payload: dict[str, Any]) -> list[tuple[str, list[dict[str, Any
         {"repository_id": repository_id, "dependency_id": dependency["repository_id"]}
         for dependency in payload.get("dependencies", [])
     ]
-
     plan: list[tuple[str, list[dict[str, Any]]]] = [
         (UPSERT_REPOSITORY, repositories),
         (UPSERT_REPOSITORY, dependency_rows),
@@ -338,10 +397,14 @@ def build_batches(payload: dict[str, Any]) -> list[tuple[str, list[dict[str, Any
         (UPSERT_MODULE, module_rows),
         (UPSERT_COMMIT, commit_rows),
         (UPSERT_FILE, file_rows),
+        # Symbols are written after files so the DECLARES edge can match both
+        # endpoints.
+        (UPSERT_CODE_SYMBOL, symbol_rows),
         (UPSERT_CODEOWNER_PATH, codeowner_rows),
         (LINK_REPO_COMMIT, repo_commit_rows),
         (LINK_AUTHORED, authored_rows),
         (LINK_MODULE_FILE, module_file_rows),
+        (LINK_FILE_SYMBOL, file_symbol_rows),
         (LINK_MODIFIES, modifies_rows),
         (LINK_DEPENDS_ON_REPO, dependency_link_rows),
         (LINK_CODEOWNERS_PATH, codeowner_link_rows),

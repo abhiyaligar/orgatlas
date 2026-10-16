@@ -316,5 +316,62 @@ class GraphGateway:
             return {"changes": 0, "recent_shas": []}
         return {"changes": rows[0][0] or 0, "recent_shas": rows[0][1] or []}
 
+    # --- Code declarations ----------------------------------------------------
+
+    def get_code_symbol(
+        self, name: str, file_id: str = "", limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Look up declarations by name, most documented first."""
+        rows = self._execute(
+            queries.GET_CODE_SYMBOL,
+            {"name": name, "file_id": file_id or "", "limit": clamp_limit(limit)},
+        )
+        return [
+            {
+                "id": row[0],
+                "name": row[1],
+                "kind": row[2],
+                "signature": row[3],
+                "doc_comment": row[4],
+                "documented": row[5],
+                "line": row[6],
+                "visibility": row[7],
+                "container": row[8],
+                "language": row[9],
+                "repository_id": row[10],
+                "docs_at_sha": row[11],
+            }
+            for row in rows
+        ]
+
+    def search_code_symbols(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+        rows = self._execute(
+            queries.SEARCH_CODE_SYMBOLS,
+            {"query": query, "limit": clamp_limit(limit)},
+        )
+        return [
+            {
+                "name": row[0],
+                "id": row[1],
+                "kind": row[2],
+                "container": row[3],
+                "documented": row[4],
+            }
+            for row in rows
+        ]
+
+    def get_symbol_file(self, symbol_id: str) -> Optional[Dict[str, Any]]:
+        rows = self._execute(queries.GET_SYMBOL_FILE, {"symbol_id": symbol_id})
+        if not rows:
+            return None
+        row = rows[0]
+        return {
+            "file_id": row[0],
+            "path": row[1],
+            "repository_id": row[2],
+            "language": row[3],
+            "is_test": row[4],
+        }
 
 graph_gateway = GraphGateway()
+

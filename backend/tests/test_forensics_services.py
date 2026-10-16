@@ -273,3 +273,119 @@ class TestFileDescription:
         result = service.describe_file("repo_x::src/plain.rs")
 
         assert result["summary"] == ""
+
+class TestDescribeSymbol:
+    """Declaration lookup must never silently guess between matches."""
+
+    def _gateway(self, matches, changes=0):
+        from unittest.mock import MagicMock
+
+        g = MagicMock()
+        g.get_code_symbol.return_value = matches
+        g.get_symbol_file.return_value = {
+            "file_id": "repo_x::src/f.rs",
+            "path": "src/f.rs",
+            "repository_id": "repo_x",
+            "language": "Rust",
+            "is_test": False,
+        }
+        g.get_commit_authored_at.return_value = "2024-01-01T00:00:00Z"
+        g.get_file_changes_after.return_value = {"changes": changes, "recent_shas": []}
+        g.get_path_contributors.return_value = []
+        g.get_file_history.return_value = [
+            {
+                "sha": "s1",
+                "message": "init",
+                "authored_at": "2024-01-01",
+                "author": "dev",
+                "author_id": "p1",
+                "pr_number": 3,
+                "short_sha": "s1",
+                "is_merge": False,
+                "repository_id": "repo_x",
+            }
+        ]
+        return g
+
+    def _match(self, **overrides):
+        base = {
+            "id": "repo_x::src/f.rs::function:C:new",
+            "name": "new",
+            "kind": "function",
+            "signature": "pub fn new() -> Self",
+            "doc_comment": "Builds it.",
+            "documented": True,
+            "line": 14,
+            "visibility": "pub",
+            "container": "Default for Widget",
+            "language": "Rust",
+            "repository_id": "repo_x",
+            "docs_at_sha": "abc1234def",
+        }
+        base.update(overrides)
+        return base
+
+    def test_returns_documented_symbol_with_its_file_and_line(self):
+        service = ChangeForensicsService(gateway=self._gateway([self._match()]))
+        result = service.describe_symbol("new")
+
+        assert result["match_count"] == 1
+        match = result["matches"][0]
+        assert match["doc_comment"] == "Builds it."
+        assert match["path"] == "src/f.rs"
+        assert match["line"] == 14
+        assert match["signature"].startswith("pub fn new")
+
+    def test_ambiguous_name_returns_every_match_with_its_container(self):
+        gateway = self._gateway(
+            [
+                self._match(),
+                self._match(
+                    id="repo_x::src/f.rs::function:Widget:new",
+                    container="Widget",
+                    doc_comment="",
+                    documented=False,
+                    line=20,
+                ),
+            ]
+        )
+        result = ChangeForensicsService(gateway=gateway).describe_symbol("new")
+
+        assert result["match_count"] == 2
+        assert {m["container"] for m in result["matches"]} == {"Default for Widget", "Widget"}
+        assert any("matches 2 declarations" in note for note in result["notes"])
+
+    def test_undocumented_symbol_is_flagged_not_hidden(self):
+        gateway = self._gateway([self._match(doc_comment="", documented=False)])
+        result = ChangeForensicsService(gateway=gateway).describe_symbol("new")
+
+        assert result["matches"][0]["documented"] is False
+        assert any("None of these declarations" in g for g in result["guidance"])
+
+    def test_drift_is_measured_against_the_owning_file(self):
+        gateway = self._gateway([self._match()], changes=4)
+        result = ChangeForensicsService(gateway=gateway).describe_symbol("new")
+
+        assert result["matches"][0]["changes_since_docs"] == 4
+        gateway.get_file_changes_after.assert_called_with("repo_x::src/f.rs", "2024-01-01T00:00:00Z")
+
+    def test_unknown_scan_point_reports_no_drift_evidence(self):
+        gateway = self._gateway([self._match(docs_at_sha="")])
+        result = ChangeForensicsService(gateway=gateway).describe_symbol("new")
+
+        assert result["matches"][0]["changes_since_docs"] == 0
+        gateway.get_commit_authored_at.assert_not_called()
+
+    def test_no_match_is_an_explicit_refusal(self):
+        result = ChangeForensicsService(gateway=self._gateway([])).describe_symbol("nope")
+
+        assert result["match_count"] == 0
+        assert result["matches"] == []
+        assert any(
+            "exported declarations are recorded" in note for note in result["notes"]
+        )
+
+    def test_recent_history_is_attached(self):
+        gateway = self._gateway([self._match()])
+        result = ChangeForensicsService(gateway=gateway).describe_symbol("new")
+        assert result["matches"][0]["recent_history"][0]["sha"] == "s1"

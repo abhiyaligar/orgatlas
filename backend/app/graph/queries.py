@@ -258,3 +258,46 @@ WHERE c.authored_at > $since
 RETURN count(c) AS changes,
        collect(DISTINCT c.id)[..5] AS recent_shas
 """
+# 22. Look up a declaration by name, optionally scoped to one file
+GET_CODE_SYMBOL = """
+MATCH (s:CodeSymbol)
+WHERE toLower(s.name) = toLower($name)
+  AND ($file_id = '' OR s.id STARTS WITH $file_id + '::')
+RETURN s.id AS id,
+       s.name AS name,
+       coalesce(s.kind, '') AS kind,
+       coalesce(s.signature, '') AS signature,
+       coalesce(s.doc_comment, '') AS doc_comment,
+       coalesce(s.documented, false) AS documented,
+       coalesce(s.line, 0) AS line,
+       coalesce(s.visibility, '') AS visibility,
+       coalesce(s.container, '') AS container,
+       coalesce(s.language, '') AS language,
+       coalesce(s.repository_id, '') AS repository_id,
+       coalesce(s.docs_at_sha, '') AS docs_at_sha
+ORDER BY documented DESC, length(s.doc_comment) DESC
+LIMIT $limit
+"""
+
+# 23. Names of declarations matching a text query, for tool discovery
+SEARCH_CODE_SYMBOLS = """
+MATCH (s:CodeSymbol)
+WHERE toLower(s.name) CONTAINS toLower($query)
+RETURN s.name AS name,
+       s.id AS id,
+       coalesce(s.kind, '') AS kind,
+       coalesce(s.container, '') AS container,
+       coalesce(s.documented, false) AS documented
+LIMIT $limit
+"""
+
+# 24. The file a declaration belongs to, with that file's history context
+GET_SYMBOL_FILE = """
+MATCH (f:File)-[:DECLARES]->(s:CodeSymbol {id: $symbol_id})
+RETURN f.id AS file_id,
+       f.path AS path,
+       coalesce(f.repository_id, '') AS repository_id,
+       coalesce(f.language, '') AS language,
+       coalesce(f.is_test, false) AS is_test
+LIMIT 1
+"""

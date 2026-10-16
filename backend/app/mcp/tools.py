@@ -431,6 +431,126 @@ def assess_file_risk(
     )
 
 
+def describe_file(file_id: str) -> Dict[str, Any]:
+    """Describe a file from the documentation its authors wrote.
+
+    ``file_id`` is the graph node id of the form ``repo_<name>::<path>``.
+    """
+    result = _forensics.describe_file(file_id)
+
+    if result is None:
+        return refusal(
+            f"No ingested history for '{file_id}'.",
+            notes=[
+                "file_id must be the graph node id, e.g. "
+                "repo_falkordb_falkordb::src/redis/redis.c"
+            ],
+        )
+
+    provenance = result["provenance"]
+    origin = provenance["origin"]
+    origin_note = (
+        f"Description written by: {origin}"
+        + (f" ({provenance['model']})" if provenance["model"] else "")
+    )
+
+    return envelope(
+        summary=(
+            f"{result['path']} ({result['language']}): "
+            f"{result['summary'] or 'no summary'}"
+        ),
+        entities=[
+            {"type": "File", "id": result["file_id"], "name": result["path"]}
+        ]
+        + [
+            {"type": "Symbol", "id": f"{result['file_id']}::{name}", "name": name}
+            for name in result["symbols"][:15]
+        ],
+        notes=[
+            result["staleness_reason"],
+            origin_note,
+        ],
+        actions=[
+            "Call describe_symbol for a listed symbol to get its signature and doc comment."
+        ],
+        confidence="stale" if result["stale"] else "supported",
+    )
+
+
+def describe_symbol(symbol_name: str, file_id: str = "") -> Dict[str, Any]:
+    """Explain one function, type or method from its authored documentation.
+
+    Returns every match when a name is shared, each with its container, rather
+    than silently choosing one.
+    """
+    name = validate_identifier(symbol_name, "symbol_name")
+    result = _forensics.describe_symbol(name, file_id=file_id)
+
+    if result["match_count"] == 0:
+        return refusal(
+            f"No ingested declaration named '{name}'.",
+            notes=[
+                "Only exported declarations are recorded, so private helpers and "
+                "items in files excluded by the repository filters will not appear.",
+            ],
+        )
+
+    matches = result["matches"]
+    first = matches[0]
+    entities = [
+        {
+            "type": "Symbol",
+            "id": match["symbol_id"],
+            "name": match["name"],
+        }
+        for match in matches
+    ]
+    for match in matches:
+        if match["file_id"]:
+            entities.append(
+                {"type": "File", "id": match["file_id"], "name": match["path"]}
+            )
+
+    return envelope(
+        summary=(
+            f"{first['kind']} `{first['container']}::{first['name']}`"
+            if first["container"]
+            else f"{first['kind']} `{first['name']}`"
+        )
+        + (
+            f" in {first['path']}:{first['line']}"
+            if first["path"]
+            else ""
+        ),
+        entities=entities,
+        subgraph={
+            "nodes": [
+                {"id": m["symbol_id"], "label": "Symbol", "name": m["name"]}
+                for m in matches
+            ]
+            + [
+                {"id": m["file_id"], "label": "File", "name": m["path"]}
+                for m in matches
+                if m["file_id"]
+            ],
+            "edges": [
+                {"id": f"declares_{m['file_id']}_{m['symbol_id']}",
+                 "source": m["symbol_id"], "target": m["file_id"],
+                 "type": "DECLARED_IN"}
+                for m in matches
+                if m["file_id"]
+            ],
+            "paths": [],
+        },
+        notes=list(result["notes"]) + list(result["guidance"]),
+        actions=[
+            "Open the file at the reported line and read the implementation.",
+            "Use trace_change_origin on the file to see why it changed.",
+        ],
+        confidence="partial" if not first["documented"] else "supported",
+    )
+
+
 def get_repo_dependency_impact(
     repository_id: str = DEFAULT_REPOSITORY_ID,
 ) -> Dict[str, Any]:
@@ -512,6 +632,20 @@ _TOOL_SPECS = (
         "Get repository dependency impact",
         "Cross-repository blast radius for an ingested repository, bounded to recorded edges.",
         get_repo_dependency_impact,
+    ),
+    (
+        "describe_file",
+        "Describe a file",
+        "What a file's authors documented about it, its public symbols, and whether that "
+        "description is still current. file_id is a 'repo_<name>::<path>' node id.",
+        describe_file,
+    ),
+    (
+        "describe_symbol",
+        "Describe a declaration",
+        "Explain one function, type or method from its doc comment and signature, with "
+        "the file and line it lives in. Returns every match when a name is shared.",
+        describe_symbol,
     ),
 )
 

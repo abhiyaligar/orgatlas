@@ -27,6 +27,35 @@
 | File | A tracked file in an ingested repository | path, language, loc, repository_id, is_test, summary, symbols, docs_source, docs_at_sha, docs_model, docs_generated_at, docs_input_sha, docs_trigger, docs_usage, docs_raw_response, docs_prompt_version, docs_error |
 | Module | A directory grouping files in an ingested repository | path, repository_id |
 | ExternalIdentity | A contributor identity outside the seeded organization | provider, username, email, external_id |
+| CodeSymbol | An exported function, type or method parsed from a file | name, kind, signature, doc_comment, documented, line, end_line, visibility, container, language, repository_id, docs_at_sha |
+
+### Code declarations
+
+`CodeSymbol` holds the public surface of an ingested repository, extracted by
+tree-sitter during the scan. Its `id` is
+`{file_id}::{kind}:{container}:{name}`, so the same method name in two `impl`
+blocks of one type stays two distinct symbols, and moving a declaration within
+a file does not create a new node.
+
+| Field | Meaning |
+| --- | --- |
+| `kind` | `function`, `method`, `struct`, `enum`, `trait`, `class`, `interface`, `module`, `constant`, `type`, `type_alias`, `macro` |
+| `signature` | The declaration up to its body, so it reads as a signature |
+| `doc_comment` | The documentation its authors wrote, verbatim |
+| `documented` | False when no doc comment exists. Never generated; undocumented symbols stay undocumented |
+| `line` / `end_line` | One-based position in the scanned revision |
+| `visibility` | `pub`, `pub(crate)`, `pub(super)`, `public`, or `trait` for members of a public trait |
+| `container` | The enclosing type, trait-qualified for `impl Trait for Type` |
+| `docs_at_sha` | The revision the declaration was parsed from |
+
+Only items on a file's reachable surface are stored: those with an explicit
+`pub`-style visibility, plus members of a public trait, which have no modifier
+but form that trait's contract. `DECLARES` connects a declaration to its file.
+
+Extraction is parser-backed, so a `pub fn` appearing inside a comment or a
+string literal is never recorded. If a grammar is unavailable, the language is
+not mapped, or the file fails to parse, the file contributes **no** symbols
+rather than a partial list.
 
 ### File description provenance
 

@@ -337,3 +337,115 @@ class ChangeForensicsService:
                 "ingested commit changed it."
             )
         return result
+    def describe_symbol(
+        self, name: str, file_id: str = "", limit: int = 10
+    ) -> Dict[str, Any]:
+        """Explain one declaration from the documentation its authors wrote.
+
+        Returns every match when a name is ambiguous rather than silently
+        choosing one, because picking the wrong overload would be worse than
+        reporting that the name is shared.
+        """
+        matches = self.gateway.get_code_symbol(name, file_id=file_id, limit=limit)
+
+        if not matches:
+            return {
+                "query": name,
+                "file_id": file_id,
+                "match_count": 0,
+                "matches": [],
+                "guidance": [],
+                "notes": [
+                    "No ingested declaration matches that name. Ingest the repository, "
+                    "or check the spelling; only exported declarations are recorded."
+                ],
+            }
+
+        results = []
+        for match in matches:
+            owner = self.gateway.get_symbol_file(match["id"]) or {}
+            file_history: Dict[str, Any] = {}
+            if owner.get("file_id"):
+                file_history = self.file_timeline(owner["file_id"], limit=5) or {}
+
+            results.append(
+                {
+                    "symbol_id": match["id"],
+                    "name": match["name"],
+                    "kind": match["kind"],
+                    "signature": match["signature"],
+                    "doc_comment": match["doc_comment"],
+                    "documented": match["documented"],
+                    "line": match["line"],
+                    "visibility": match["visibility"],
+                    "container": match["container"],
+                    "language": match["language"],
+                    "file_id": owner.get("file_id", ""),
+                    "path": owner.get("path", ""),
+                    "repository_id": owner.get("repository_id", ""),
+                    "is_test": bool(owner.get("is_test")),
+                    "changes_since_docs": self._file_changes_after(
+                        owner.get("file_id", ""), match["docs_at_sha"]
+                    ),
+                    "recent_history": [
+                        {
+                            "sha": entry.get("sha"),
+                            "subject": entry.get("message"),
+                            "authored_at": entry.get("authored_at"),
+                        }
+                        for entry in file_history.get("history", [])[:5]
+                    ],
+                }
+            )
+
+        guidance = []
+        documented = sum(1 for item in results if item["documented"])
+        if documented == 0:
+            guidance.append(
+                "None of these declarations carries a doc comment. Read the source "
+                "before relying on its behaviour."
+            )
+        elif documented < len(results):
+            guidance.append(
+                f"{documented} of {len(results)} matches are documented; the rest are not."
+            )
+        guidance.append(
+            "This is context only. Open the file and read the implementation before "
+            "changing behaviour."
+        )
+
+        notes = []
+        if len(results) > 1:
+            notes.append(
+                f"'{name}' matches {len(results)} declarations; each is listed with "
+                "its container, so pick the one you actually mean."
+            )
+        stale = [item for item in results if item["changes_since_docs"] > 0]
+        if stale:
+            notes.append(
+                f"{len(stale)} declaration(s) sit in files that changed after they "
+                "were scanned, so their line numbers may have moved."
+            )
+
+        return {
+            "query": name,
+            "file_id": file_id,
+            "match_count": len(results),
+            "matches": results,
+            "guidance": guidance,
+            "notes": notes,
+        }
+
+    def _file_changes_after(self, file_id: str, docs_at_sha: str) -> int:
+        """How many ingested commits touched a file after it was scanned.
+
+        Used to say whether a recorded line number might have moved. Returns 0
+        when the scan point is unknown, which reads as "no evidence of drift"
+        rather than asserting the file is unchanged.
+        """
+        if not file_id or not docs_at_sha:
+            return 0
+        authored_at = self.gateway.get_commit_authored_at(docs_at_sha)
+        if authored_at is None:
+            return 0
+        return self.gateway.get_file_changes_after(file_id, authored_at)["changes"]

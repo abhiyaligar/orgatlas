@@ -90,7 +90,7 @@ class TestEnvelope:
 
 
 class TestSurface:
-    def test_exposes_exactly_the_nine_planned_tools(self, server):
+    def test_exposes_exactly_the_eleven_planned_tools(self, server):
         assert {t.name for t in _list(server, "list_tools")} == {
             "get_architecture_context",
             "find_owner_and_expertise",
@@ -101,6 +101,8 @@ class TestSurface:
             "trace_change_origin",
             "assess_file_risk",
             "get_repo_dependency_impact",
+            "describe_file",
+            "describe_symbol",
         }
 
     def test_every_tool_declares_read_only_and_non_destructive(self, server):
@@ -389,7 +391,7 @@ class TestHttpRoundTrip:
                 client, "resources/templates/list", headers
             )["resourceTemplates"]
 
-        assert len(tools) == 9
+        assert len(tools) == 11
         assert len(prompts) == 3
         assert len(templates) == 4
         assert all(t["annotations"]["readOnlyHint"] for t in tools)

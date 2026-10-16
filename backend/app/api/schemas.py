@@ -261,3 +261,34 @@ class ProvenanceResponse(BaseModel):
     gaps: List[str] = Field(default_factory=list)
     confidence: str = "insufficient"
     graph: EvidenceSubgraph = Field(default_factory=EvidenceSubgraph)
+
+class SymbolMatch(BaseModel):
+    """One declaration matching a lookup."""
+
+    symbol_id: str
+    name: str
+    kind: str
+    signature: str
+    doc_comment: str
+    documented: bool
+    line: int
+    visibility: str
+    container: str
+    language: str
+    file_id: str
+    path: str
+    repository_id: str
+    is_test: bool
+    changes_since_docs: int = 0
+    recent_history: List[CommitSummary] = Field(default_factory=list)
+
+
+class SymbolDescriptionResponse(BaseModel):
+    """Every declaration matching a name, with the file it lives in."""
+
+    query: str
+    file_id: str = ""
+    match_count: int
+    matches: List[SymbolMatch] = Field(default_factory=list)
+    guidance: List[str] = Field(default_factory=list)
+    notes: List[str] = Field(default_factory=list)

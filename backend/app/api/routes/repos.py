@@ -20,6 +20,7 @@ from app.api.schemas import (
     IngestJobResponse,
     IngestRequest,
     InvestigationBriefResponse,
+    SymbolDescriptionResponse,
     ProvenanceResponse,
     RepositorySummary,
 )
@@ -239,3 +240,11 @@ async def get_commit_provenance(commit_id: str):
             status_code=404, detail=f"Commit '{commit_id}' is not in the knowledge graph."
         )
     return result
+@router.get("/file/symbols/{name}", response_model=SymbolDescriptionResponse)
+async def describe_symbol(name: str, file_id: str = "", limit: int = 10):
+    """Explain a declaration from the documentation its authors wrote.
+
+    Returns every match when a name is shared, each with its container, so the
+    caller can tell them apart instead of receiving a silently chosen one.
+    """
+    return _forensics.describe_symbol(name, file_id=file_id, limit=limit)

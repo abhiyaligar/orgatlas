@@ -50,10 +50,12 @@ This reduces avoidable irrelevant changes and accidental breakage. It does **not
 | Trace change origin | Ingested file node id (`repo_<name>::<path>`) | Change history, linked pull request and decision, coupled files, and provenance gaps |
 | Assess file risk | Path or prefix plus repository | Tracked files, churn hotspots, contributors, and test-churn signals |
 | Get repository dependency impact | Ingested repository id | Declared dependent repositories and the limits of that evidence |
+| Describe a file | Ingested file node id (`repo_<name>::<path>`) | What the file's authors documented, its public symbols, whether that description is current, and whether it was authored or generated |
+| Describe a declaration | Symbol name, optional file id | Doc comment, signature, kind, container, file, line, and whether the file has drifted since the scan |
 
-The final three tools are the repository-ingest forensics added in Track A. They
-use the same response contract and the same read-only boundary as the six
-originally specified tools.
+The final three tools are the repository-ingest work added in Track A: two
+forensics tools and the declaration tools. They use the same response contract
+and the same read-only boundary as the six originally specified tools.
 
 ## Response contract
 
