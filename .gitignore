@@ -25,6 +25,9 @@ backend/.coverage
 *.sqlite3
 backend/*.db
 
+# Extracted repository ingestion payloads (regenerable, large)
+data/ingest_cache/
+
 # Local/generated demo artifacts; curated fictional fixtures remain tracked
 data/private/
 data/generated/

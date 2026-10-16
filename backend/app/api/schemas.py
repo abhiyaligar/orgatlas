@@ -119,3 +119,34 @@ class DecisionTraceResponse(BaseModel):
     decided_at: Optional[str] = None
     citations: List[Citation] = Field(default_factory=list)
     graph: EvidenceSubgraph = Field(default_factory=EvidenceSubgraph)
+
+
+class IngestRequest(BaseModel):
+    repository_url: str
+
+
+class IngestJobResponse(BaseModel):
+    id: int
+    repository_url: str
+    repository_id: Optional[str] = None
+    status: str = "queued"
+    stage_detail: Optional[str] = None
+    commits_ingested: int = 0
+    files_indexed: int = 0
+    identities_resolved: int = 0
+    error_message: Optional[str] = None
+    created_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+class RepositorySummary(BaseModel):
+    id: str
+    name: str
+    url: str
+    source: Optional[str] = None
+    commit_count: int = 0
+    file_count: int = 0
+    dependencies: List["RepositorySummary"] = Field(default_factory=list)
+
+
+RepositorySummary.model_rebuild()

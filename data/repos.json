@@ -1,0 +1,21 @@
+{
+  "repositories": [
+    {
+      "id": "falkordb_falkordb",
+      "url": "https://github.com/FalkorDB/FalkorDB",
+      "commit_depth": 600,
+      "include_globs": ["*.rs", "*.toml", "*.yml", "*.md"],
+      "exclude_paths": [
+        "target/",
+        "deps/",
+        "native-deps/",
+        ".git/",
+        "*.min.js",
+        "*.lock"
+      ],
+      "codeowners": true,
+      "scan_submodules_metadata_only": true,
+      "note": "Submodule repositories are never cloned; dependency edges come from .gitmodules and Cargo.toml text in this working tree."
+    }
+  ]
+}
