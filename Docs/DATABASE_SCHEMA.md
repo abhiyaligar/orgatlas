@@ -106,6 +106,7 @@ marking the file described.
 | TARGETS_REPOSITORY | PullRequest → Repository | Pull request proposes changes to a repository |
 | HAS_COMMIT | Repository → Commit | Repository contains a revision |
 | MODIFIES | Commit → File | Commit changed a tracked file |
+| DECLARES | File → CodeSymbol | File declares an exported function, type, or method |
 | REVERTS | Commit → Commit | Commit undid an earlier commit |
 | HAS_IDENTITY | Person → ExternalIdentity | Seeded employee also known by an external account |
 | CODE_OWNS | Person/ExternalIdentity → Repository | Accountable owner from a CODEOWNERS file or contributor record |
@@ -133,6 +134,8 @@ Ingested repositories are added to the **same** graph rather than to a graph per
 For “Why does Checkout use Kafka?”, the graph should support a path such as: Checkout service → uses Kafka; the Kafka decision → affects Checkout; an incident → led to the decision; the decision → is supported by a design document and pull request; named people → decided/implemented it.
 
 For “Who changed this file and why?”, the graph should support a path such as: a file → was modified by a commit → attributed to an identity → that commit implements a decision → the decision is supported by a design document; plus any incident that led to that decision and the runbook that describes recovery.
+
+For “What does this function do?”, the path is: a symbol → is declared by a file → that file's summary and documentation source → the commits that changed the file → the identity that authored them. When the declaration carries no doc comment, the graph says so rather than supplying an explanation.
 
 ## Schema-change checklist
 

@@ -10,11 +10,12 @@ This directory is the source of truth for product and technical decisions. Imple
 | [Backend architecture](BACKEND_ARCHITECTURE.md) | API, agent boundaries, orchestration, and safety | A tool, workflow, or server responsibility changes |
 | [FalkorDB design](FALKORDB.md) | Why and how FalkorDB is central to the product | Retrieval, graph modeling, or graph operations change |
 | [Database schema](DATABASE_SCHEMA.md) | Graph labels, relationships, properties, and constraints | The graph model changes |
-| [API contract](API_CONTRACT.md) | Planned browser-to-API interfaces | A request or response changes |
+| [API contract](API_CONTRACT.md) | Browser-to-API and repository forensics interfaces | A request or response changes |
 | [MCP server design](MCP_SERVER.md) | Read-only context tools, resources, prompts, and safety rules for coding agents | An agent capability, authorization boundary, or graph-context contract changes |
 | [Deployment](DEPLOYMENT.md) | Render/FalkorDB Cloud environments and release checklist | Infrastructure or environment configuration changes |
 | [Demo plan](DEMO_PLAN.md) | Judge-facing story, seed data, and fallback plan | The demo scenario changes |
 | [Decisions](DECISIONS.md) | Architecture Decision Records (ADRs) | A material choice is made or reversed |
+| [Implementation status](STATUS.md) | What is built, verified numbers, and open work in priority order | A milestone lands or an open item closes |
 
 ## Change protocol
 
@@ -30,3 +31,5 @@ This directory is the source of truth for product and technical decisions. Imple
 - **Decision:** a record of a company choice, its alternatives, rationale, owner, and sources.
 - **Onboarding map:** an engineering-role-specific guided view of systems, owners, dependencies, incidents, and reading material.
 - **Architecture context:** the source-backed system, dependency, ownership, decision, and change-impact information returned to a coding agent.
+- **Declaration:** an exported function, type, or method parsed from source, stored as `CodeSymbol` and reachable through `describe_symbol`.
+- **Authored vs generated:** every stored description is one or the other. Authored text came from the file's own documentation; generated text came from the model fallback and records which model, which revision, and at what token cost.

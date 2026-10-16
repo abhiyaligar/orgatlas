@@ -4,17 +4,21 @@
 
 OrgAtlas turns engineers, teams, services, repositories, documents, incidents, and decisions into a connected FalkorDB graph. It helps new engineering hires understand their team’s systems, ownership, dependencies, and essential learning path; it also traces architecture decisions back to the evidence that supports them. A read-only MCP server gives coding agents the same verified architecture context before they plan or change code.
 
+It also ingests a real open-source repository. Git history is parsed inside an isolated sandbox, exported declarations are extracted with tree-sitter, and every stored description records whether it was written by the file’s own authors or generated as a fallback. “What does this function do” and “who changed it, and why” are then answered from evidence rather than inference.
+
 ## Stack
 
 | Area | Choice |
 | --- | --- |
 | Web client | React, TypeScript, Vite, Tailwind CSS, shadcn/ui |
 | API | Python and FastAPI |
-| Model provider | Nebius, through its OpenAI-compatible API |
 | Graph database | FalkorDB Cloud |
+| Repository ingestion | E2B sandbox: git only, no database or model credentials |
+| Declaration parsing | tree-sitter, ten grammars, pinned per environment |
+| Model provider | Nebius, through its OpenAI-compatible API |
 | Hosting | Render Static Site (web) and Render Web Service (API) |
 | Graph view | Cytoscape.js |
-| Coding-agent context | Read-only OrgAtlas MCP server |
+| Coding-agent context | Read-only OrgAtlas MCP server, 11 tools |
 
 ## Documentation
 
@@ -27,6 +31,7 @@ Start with the [documentation index](Docs/README.md). The key implementation ref
 - [Frontend architecture](Docs/FRONTEND_ARCHITECTURE.md)
 - [Backend architecture](Docs/BACKEND_ARCHITECTURE.md)
 - [MCP server design](Docs/MCP_SERVER.md)
+- [Implementation status](Docs/STATUS.md) — what is built, and what remains
 
 ## Scope guardrails
 
@@ -34,7 +39,8 @@ Start with the [documentation index](Docs/README.md). The key implementation ref
 - The model never has direct database access; it can use only approved graph tools.
 - Coding agents receive architecture context through read-only MCP tools; MCP never writes code, repositories, or graph data.
 - Every substantive answer must show its graph evidence and source documents.
-- The first release uses curated fictional company data, not live Slack, GitHub, or customer data.
+- Organisation data is curated and fictional. Repository ingestion reads only public open-source code, clones no dependency repository, and records no credentials inside the sandbox.
+- Authored documentation always wins. A generated description is used only where the file's authors wrote nothing usable, and it is labelled as generated with the model, revision, and raw response retained.
 
 ## Repository conventions
 
@@ -42,3 +48,18 @@ Start with the [documentation index](Docs/README.md). The key implementation ref
 - Record meaningful technical decisions in [ADRs](Docs/DECISIONS.md).
 - Update [the API contract](Docs/API_CONTRACT.md) before changing a client/server boundary.
 - Update [the schema](Docs/DATABASE_SCHEMA.md) before adding or changing graph labels, properties, or relationships.
+
+## Getting started
+
+```bash
+# Backend
+cd backend && python -m venv venv && venv\Scripts\activate   # Windows
+pip install -r requirements.txt
+python scripts/seed_database.py                               # fixtures -> graph
+pytest -q                                                    # test suite
+
+# E2B ingestion template (only needed after changing scanner or parser code)
+pip install e2b && python e2b_template.py
+```
+
+`data/repos.json` holds the include and exclude filters applied during a scan, and `scripts/prune_graph.py` removes nodes a current filter set would no longer admit. Both are dry-run by default.

@@ -18,7 +18,11 @@ Use a fictional SaaS company with Payments and Platform teams. Checkout depends 
 6. Ask: “Who should I contact before changing Token Service, and what could be affected?”
 7. Connect a coding agent to OrgAtlas MCP and ask for the context needed to change Checkout authentication.
 8. Show the returned services, owners, dependency paths, incident/decision history, source documents, and risk/uncertainty notes.
-9. Close by showing that every result is a FalkorDB traversal, not generic document search or ungrounded agent advice.
+9. **Code-level follow-up.** Ask the agent to explain a named function in the ingested repository. Show the signature, the doc comment its authors wrote, the file and line, and how often it has changed. Then ask about a function that has no doc comment, and show that OrgAtlas says so rather than inventing an explanation.
+10. Show a file whose authors wrote nothing usable at all, and point out that its description is labelled as generated, with the model and revision recorded.
+11. Close by showing that every result is a FalkorDB traversal, not generic document search or ungrounded agent advice.
+
+Steps 9 and 10 are the part judges tend to probe, because "the agent understands the code" is easy to claim and easy to fake. The honest version is: the description came from a doc comment, or it did not exist and we said so.
 
 ## Required reliable prompts
 
@@ -27,10 +31,12 @@ Use a fictional SaaS company with Payments and Platform teams. Checkout depends 
 - What should a new Payments engineer learn in their first week?
 - Which incident led to the Kafka decision, and where was it documented?
 - Who has relevant experience with the Checkout event pipeline?
+- What does this function do, and who has changed it?
 
 ## Fallback plan
 
 - Keep a brief screen recording of the complete demo.
 - Seed data before the presentation; do not rely on live ingestion.
+- Pre-ingest the repository and cache the payload, so a failed sandbox never blocks the demo.
 - Have direct links to the deployed app, repository, architecture diagram, and FalkorDB Browser view where permitted.
-- If LLM inference fails, show the API’s retrieved evidence/source mode to prove graph functionality.
+- If LLM inference fails, show the API's retrieved evidence/source mode to prove graph functionality. Authored documentation and code-level context still work without inference, because neither depends on the model.

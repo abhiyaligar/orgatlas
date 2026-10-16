@@ -4,7 +4,7 @@
 
 OrgAtlas answers relationship questions that document search alone cannot resolve: which systems depend on a service, who participated in an architecture decision, which incident triggered it, who has relevant experience, and which sources support the conclusion. FalkorDB is the primary graph store for these entities and paths. It is not a side cache or optional retrieval layer.
 
-## Planned usage
+## Usage
 
 | Capability | FalkorDB role |
 | --- | --- |
@@ -15,13 +15,15 @@ OrgAtlas answers relationship questions that document search alone cannot resolv
 | Explainability | Return graph nodes and edges that form the evidence path shown in the UI |
 | Tenant readiness | Use graph isolation conventions so future organizations can be separated |
 | MCP architecture context | Return source-backed system, ownership, dependency, decision, and incident context to coding agents |
+| Change forensics | Traverse `Commit`→`File`, `Commit`→`Module`, and `Repository`→`Commit` paths to answer who changed a file and when |
+| Declaration lookup | Read `CodeSymbol` by name, with the declaring file, signature, and doc comment |
 
 ## Query policy
 
 - Only the backend connects to FalkorDB Cloud.
 - The backend uses official FalkorDB clients and parameterized OpenCypher queries.
 - Queries are created from a controlled intent allowlist, not raw LLM output.
-- Read operations are the default; seed ingestion is the only planned write path in the MVP.
+- Read operations are the default. The only write paths are the seed, repository ingestion, the description fallback, and the maintenance prune script.
 - Bound traversal depth and result count to keep responses predictable.
 
 ## Index strategy for the MVP
@@ -36,6 +38,7 @@ Ingested code history is queried by repository and by path, so those labels are 
 - `File` on `(path)` and on `(repository_id)`
 - `Module` on `(path)` and on `(repository_id)`
 - `ExternalIdentity` on `(email)` and on `(username)`
+- `CodeSymbol` on `(id)`, `(name)`, and `(repository_id)`
 
 A commit lookup is always scoped by `repository_id`, so composite lookups stay bounded even when several repositories are ingested. Ingested data is merged with `MERGE`, making re-ingestion idempotent rather than duplicating history.
 
@@ -51,3 +54,11 @@ Each tool result must provide:
 2. The sources that substantiate them.
 3. A bounded node/edge list that the client can render.
 4. A readable step-by-step path description.
+
+## Engine constraints observed in practice
+
+These are properties of the deployed FalkorDB Cloud instance, recorded so they are not rediscovered as bugs:
+
+- A result set is capped at **10,000 rows**. Bulk reads use keyset pagination; bulk deletes use a predicate rather than enumerating ids first.
+- `FLUSHDB` is **not permitted** for the configured user. A full clean drops the graph with the client's graph-level delete and recreates it.
+- `ORDER BY` cannot reference a `RETURN` alias, and `length()` on a string property fails with *expected Path or Null but was String*. Order by the property itself and use `size()`.

@@ -68,6 +68,8 @@ Every tool returns structured content containing:
 5. Risk notes and explicit missing/uncertain information.
 6. Suggested validation actions, such as reviewing a linked runbook or testing an affected dependency.
 
+A tool whose answer *is* a declaration carries that detail on its entities — signature, doc comment, kind, container, line, and provenance — rather than returning an identifier and expecting the agent to fetch it again.
+
 ## Safety and authorization requirements
 
 - All MCP tools are read-only.
@@ -85,6 +87,16 @@ Every tool returns structured content containing:
 - `MCPServer.streamable_http_app()` already routes `/mcp` internally, so it is mounted at the host root and requests for `/mcp` fall through to it. Mounting it *under* `/mcp` would produce `/mcp/mcp`.
 - Starlette does not forward lifespan events to mounted applications, so the MCP session-manager lifespan is composed into the host application's lifespan.
 - DNS-rebinding protection stays enabled; only loopback hosts and origins are allowed on the development route.
+- All eleven tools declare `readOnlyHint` with `destructiveHint` false, and each description carries the advisory-not-approval disclosure.
+- Declaration data comes from the ingestion sandbox's tree-sitter pass. The MCP surface reads it only; it never parses source or calls a provider.
+
+## Current surface
+
+| Tools | Resources | Prompts |
+| --- | --- | --- |
+| 11, all read-only | 4 templates | 3 |
+
+Verified over real JSON-RPC: `initialize`, `tools/list`, `prompts/list`, and `resources/templates/list` all answer, and the browser API continues to serve alongside the mounted MCP app.
 
 ## Deployment boundary
 
@@ -92,16 +104,19 @@ Deploy the MCP server as a separately authenticated service on Render, or isolat
 
 ## MVP acceptance checks
 
-1. A compatible coding agent can discover the server’s read-only capabilities.
+1. A compatible coding agent can discover the server's read-only capabilities.
 2. It can retrieve context for Checkout or Token Service.
 3. A change-impact query returns owners, dependencies, a decision/incident link where available, and sources.
 4. No tool accepts or executes arbitrary Cypher or a write action.
 5. A response with missing evidence says so explicitly rather than guessing.
+6. A question about a named function returns its signature, documentation, file, and line — or states that the declaration carries no doc comment.
 
 ## Deferred work
 
+- Real authentication and authorization for MCP clients.
 - Per-organization tenancy and enterprise identity integration.
 - Live repository/issue-tracker synchronization.
 - Repository-diff-aware impact analysis.
+- Call-graph extraction, so a tool can answer "who calls this" rather than only "where is this declared".
 - Automated pull-request review or code editing.
 - Change-approval workflow.
