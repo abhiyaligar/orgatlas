@@ -11,10 +11,11 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from app.core.config import settings
+from app.ingestion.repo_scanner import encode_filter_config, load_repository_config
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,17 @@ class SandboxError(RuntimeError):
 
 class SandboxUnavailableError(SandboxError):
     """Raised when Track A environment configuration is missing."""
+
+
+def _filter_config_for(repository_url: str) -> dict | None:
+    """Read the host-side include/exclude filters for this repository.
+
+    The sandbox only ever sees a clone of the target repository, so it has no
+    access to OrgAtlas' own ``data/repos.json``. Without this the scanner would
+    silently fall back to ingesting every path.
+    """
+    repo_root = Path(__file__).resolve().parents[3]
+    return load_repository_config(str(repo_root), repository_url)
 
 
 @dataclass(frozen=True)
@@ -98,11 +110,24 @@ def run_scan(request: ScanRequest, on_stage=None) -> ScanResult:
         sandbox_id = str(sandbox.sandbox_id)
         stage(f"sandbox {sandbox_id} ready; starting clone")
 
+        filter_config = _filter_config_for(request.repository_url)
+        encoded_filters = encode_filter_config(filter_config)
+        stage(
+            "filter config: "
+            + (
+                f"{len(filter_config.get('include_globs') or [])} include globs, "
+                f"{len(filter_config.get('exclude_paths') or [])} exclude paths"
+                if filter_config
+                else "none configured for this repository (all paths ingested)"
+            )
+        )
+
         result = sandbox.commands.run(
             "cd /home/user && "
             f"ORGATLAS_REPO_URL={request.repository_url!r} "
             f"ORGATLAS_COMMIT_DEPTH={request.commit_depth} "
             f"ORGATLAS_OUTPUT_DIR={SANDBOX_OUTPUT_DIR} "
+            f"ORGATLAS_FILTER_CONFIG_B64={encoded_filters or ''} "
             f"python -m {SCAN_SCRIPT}",
             cwd=SANDBOX_WORKDIR,
             timeout=timeout,

@@ -182,3 +182,46 @@ class TestGlobMatching:
     )
     def test_matches(self, path, pattern, expected):
         assert _matches(path, pattern) is expected
+
+class TestFilterConfigInjection:
+    """The sandbox holds only a clone, so filters must be injected from the host."""
+
+    def test_encode_decode_round_trip(self):
+        from app.ingestion.repo_scanner import decode_filter_config, encode_filter_config
+
+        config = {"include_globs": ["*.rs"], "exclude_paths": ["target/"]}
+        assert decode_filter_config(encode_filter_config(config)) == config
+
+    def test_only_filter_keys_reach_the_sandbox(self):
+        import json as _json
+
+        from app.ingestion.repo_scanner import encode_filter_config
+
+        config = {
+            "include_globs": ["*.rs"],
+            "exclude_paths": ["deps/"],
+            "commit_depth": 600,
+            "notes": "internal note",
+        }
+        decoded = _json.loads(
+            __import__("base64").b64decode(encode_filter_config(config)).decode("utf-8")
+        )
+        assert set(decoded) == {"include_globs", "exclude_paths"}
+
+    @pytest.mark.parametrize("value", [None, "", "!!!not base64!!!", "bm90IGpzb24="])
+    def test_decode_tolerates_bad_input(self, value):
+        from app.ingestion.repo_scanner import decode_filter_config
+
+        assert decode_filter_config(value) in (None, {"include_globs": [], "exclude_paths": []})
+
+    def test_host_can_resolve_the_real_repository_config(self):
+        from app.ingestion.sandbox_client import _filter_config_for
+
+        config = _filter_config_for("https://github.com/FalkorDB/FalkorDB")
+        assert config, "FalkorDB entry should resolve from data/repos.json"
+        assert "*.rs" in config["include_globs"]
+
+    def test_unknown_repository_resolves_to_no_filters(self):
+        from app.ingestion.sandbox_client import _filter_config_for
+
+        assert not _filter_config_for("https://github.com/example/not-configured")

@@ -7,6 +7,7 @@ and never receives database or model-provider credentials.
 
 from __future__ import annotations
 
+import base64
 import fnmatch
 import json
 import os
@@ -202,6 +203,39 @@ def load_repository_config(repo_root: str, url: str) -> dict[str, Any]:
     return {}
 
 
+def encode_filter_config(config: dict | None) -> str | None:
+    """Base64-encode the subset of a repository entry the scanner needs.
+
+    Only the filter keys are sent, so no unrelated manifest field ever reaches
+    the sandbox.
+    """
+    if not config:
+        return None
+    subset = {
+        "include_globs": config.get("include_globs") or [],
+        "exclude_paths": config.get("exclude_paths") or [],
+    }
+    raw = json.dumps(subset, separators=(",", ":")).encode("utf-8")
+    return base64.b64encode(raw).decode("ascii")
+
+
+def decode_filter_config(encoded: str | None) -> dict | None:
+    """Inverse of :func:`encode_filter_config`."""
+    if not encoded:
+        return None
+    try:
+        raw = base64.b64decode(encoded.encode("ascii"), validate=True)
+        decoded = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(decoded, dict):
+        return None
+    return {
+        "include_globs": decoded.get("include_globs") or [],
+        "exclude_paths": decoded.get("exclude_paths") or [],
+    }
+
+
 def scan_repository(repo_path: str, url: str, depth: int, config: dict | None = None) -> dict[str, Any]:
     """Produce the structured graph payload for a cloned repository."""
     raw_log = _run(
@@ -292,6 +326,11 @@ def main() -> int:
     url = os.environ.get("ORGATLAS_REPO_URL")
     depth = int(os.environ.get("ORGATLAS_COMMIT_DEPTH", "600"))
     output_dir = os.environ.get("ORGATLAS_OUTPUT_DIR", "/home/user/out")
+    # The sandbox only ever holds a clone of the target repository, which does
+    # not contain OrgAtlas' own data/repos.json. The host therefore injects the
+    # matching filter config through this variable, base64 encoded so it
+    # survives the shell without quoting problems.
+    injected_config = decode_filter_config(os.environ.get("ORGATLAS_FILTER_CONFIG_B64"))
 
     if not url:
         print("ORGATLAS_REPO_URL is required", file=sys.stderr)
@@ -299,7 +338,8 @@ def main() -> int:
 
     os.makedirs(output_dir, exist_ok=True)
     repo_path = clone_repository(url, output_dir, depth)
-    payload = scan_repository(repo_path, url, depth)
+    config = injected_config if injected_config is not None else None
+    payload = scan_repository(repo_path, url, depth, config=config)
 
     output_path = os.path.join(output_dir, OUTPUT_FILENAME)
     with open(output_path, "w", encoding="utf-8") as handle:
