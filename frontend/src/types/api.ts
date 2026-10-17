@@ -185,11 +185,6 @@ export interface ChurnResponse {
   hotspots: FileChurn[];
 }
 
-export interface CommitListResponse {
-  repository_id: string;
-  commits: CommitSummary[];
-}
-
 export interface FileTimelineResponse {
   file_id: string;
   path: string;

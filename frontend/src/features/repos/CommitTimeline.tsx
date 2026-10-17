@@ -37,12 +37,12 @@ export function CommitTimeline({ repositoryId }: { repositoryId: string }) {
         {commits.state === "error" && commits.failure ? (
           <ErrorState failure={commits.failure} onRetry={commits.reload} />
         ) : null}
-        {commits.data && commits.data.commits.length === 0 ? (
+        {commits.data && commits.data.length === 0 ? (
           <p className="text-sm text-muted-foreground">No commits recorded.</p>
         ) : null}
-        {commits.data && commits.data.commits.length > 0 ? (
+        {commits.data && commits.data.length > 0 ? (
           <ol className="space-y-3">
-            {commits.data.commits.map((commit) => (
+            {commits.data.map((commit) => (
               <CommitRow key={commit.sha} commit={commit} />
             ))}
           </ol>

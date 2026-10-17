@@ -258,8 +258,8 @@ async def get_file_coupling(file_id: str, limit: int = 15):
 
 
 @router.get("/{repository_id}/commits", response_model=list[CommitSummary])
-async def get_module_commits(repository_id: str, path_prefix: str, limit: int = 50):
-    """Recent commits touching a module or directory."""
+async def get_module_commits(repository_id: str, path_prefix: str = "", limit: int = 50):
+    """Recent commits touching a module or directory, or the whole repository."""
     _require_repository(repository_id)
     return _forensics.module_history(
         repository_id, path_prefix=path_prefix, limit=limit

@@ -3,7 +3,7 @@ import type {
   AskQuestionResponse,
   ChurnResponse,
   Citation,
-  CommitListResponse,
+  CommitSummary,
   CouplingResponse,
   DemoPrompt,
   EntityDetailResponse,
@@ -129,9 +129,12 @@ export function fetchRepoChurn(
 export function fetchRepoCommits(
   repositoryId: string,
   limit = 25,
-): Promise<CommitListResponse> {
-  return request<CommitListResponse>(
-    `/repos/${encodeURIComponent(repositoryId)}/commits?limit=${limit}`,
+  pathPrefix = "",
+): Promise<CommitSummary[]> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (pathPrefix) query.set("path_prefix", pathPrefix);
+  return request<CommitSummary[]>(
+    `/repos/${encodeURIComponent(repositoryId)}/commits?${query.toString()}`,
   );
 }
 

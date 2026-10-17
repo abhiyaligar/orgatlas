@@ -13,7 +13,7 @@ import {
 } from "@/services/apiClient";
 import type {
   ChurnResponse,
-  CommitListResponse,
+  CommitSummary,
   DemoPrompt,
   FileDescriptionResponse,
   FileTimelineResponse,
@@ -64,7 +64,7 @@ export function useRepoChurn(
   return useAsyncResource<ChurnResponse>(loader, [repositoryId, pathPrefix]);
 }
 
-export function useRepoCommits(repositoryId: string): AsyncResource<CommitListResponse> {
+export function useRepoCommits(repositoryId: string): AsyncResource<CommitSummary[]> {
   const loader = useCallback(() => fetchRepoCommits(repositoryId, 25), [repositoryId]);
-  return useAsyncResource<CommitListResponse>(loader, [repositoryId]);
+  return useAsyncResource<CommitSummary[]>(loader, [repositoryId]);
 }
