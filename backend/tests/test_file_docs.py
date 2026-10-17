@@ -6,6 +6,7 @@ Pure functions only: no graph, no network, no model provider.
 import pytest
 
 from app.ingestion.file_docs import (
+    MAX_SUMMARY_CHARS,
     describe_source,
     first_item_summary,
     llm_fallback_available,
@@ -185,9 +186,28 @@ class TestDescribeSource:
         result = describe_source(text, ".github/workflows/ci.yml")
         assert result["symbols"] == ["name", "on", "jobs"]
 
-    def test_summary_is_length_bounded(self):
+    def test_summary_runs_to_a_paragraph_and_is_bounded(self):
+        """A description is context, not a teaser.
+
+        It used to be cut at 400 characters, which left readers holding half a
+        claim with the evidence for the rest of it removed. It now runs to a
+        full paragraph, and is bounded only where it has to be.
+        """
         result = describe_source("//! " + ("word " * 500), "src/long.rs", "Rust")
-        assert len(result["summary"]) <= 400
+
+        assert len(result["summary"]) <= MAX_SUMMARY_CHARS
+        assert MAX_SUMMARY_CHARS == 5000
+
+    def test_an_ordinary_description_is_not_cut(self):
+        source = (
+            "//! Core graph data structure and operations.\n"
+            "//!\n"
+            "//! The graph supports nodes, relationships, properties and indexes.\n"
+        )
+        summary = describe_source(source, "src/graph.rs", "Rust")["summary"]
+
+        assert "[truncated]" not in summary
+        assert "indexes" in summary
 
 
 class TestMarkdown:

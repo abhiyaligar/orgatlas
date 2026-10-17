@@ -120,7 +120,11 @@ DECISION_LABELS = frozenset({"Decision", "Incident", "Document", "Ticket", "Pull
 
 DEFAULT_TEAM_ID = "team_payments"
 
-MAX_FACT_CHARS = 4000
+# The package answer now carries a full description, so the fact text handed
+# to the model has to fit one plus the framing around it.
+MAX_FACT_CHARS = 6000
+# A citation excerpt is evidence, so it is not shortened to a teaser.
+MAX_EXCERPT_CHARS = 5000
 
 
 def _dedupe_declarations(declarations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -561,7 +565,7 @@ class AskService:
                     source_id=match["id"],
                     title=f"{file_node['path']}:{match.get('line', 0)}",
                     type="code",
-                    excerpt=(match.get("signature") or match["name"])[:300],
+                    excerpt=(match.get("signature") or match["name"])[:MAX_EXCERPT_CHARS],
                     author="",
                     url="",
                 )
@@ -683,7 +687,7 @@ class AskService:
                     source_id=file_id,
                     title=path,
                     type="code",
-                    excerpt=(summary or "")[:300],
+                    excerpt=(summary or "")[:MAX_EXCERPT_CHARS],
                     author="",
                     url="",
                 )
@@ -933,6 +937,29 @@ class AskService:
         return package
 
     # --- response assembly ---------------------------------------------------
+
+    async def answer(
+        self, question: str, context: Optional[str] = None
+    ) -> AskQuestionResponse:
+        """Answer one question end to end.
+
+        This is the single path a caller should use, and the HTTP route is a thin
+        wrapper over it. The Slack bot calls the same method, which is the point:
+        an answer in Slack is the answer the API gives, with the same evidence
+        and the same refusal to answer what the graph does not support. Keeping
+        the flow in one place is what stops the two faces from drifting apart.
+        """
+        package = self.retrieve(question, context)
+
+        if package is None:
+            logger.info("No route matched the question; returning insufficient evidence")
+            return self.insufficient(question)
+
+        package["confidence"] = self.confidence_for(
+            package.get("citations") or [], package.get("graph")
+        )
+        package = await self.synthesize(question, package)
+        return self.build_response(question, package)
 
     def insufficient(self, question: str) -> AskQuestionResponse:
         return AskQuestionResponse(**self.evidence.build_insufficient_response(question))

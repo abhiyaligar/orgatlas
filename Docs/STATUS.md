@@ -20,7 +20,9 @@ Update this whenever a milestone lands or an item below is closed.
 | Tests | Backend 424 passing, 6 skipped by design; frontend 16 passing |
 | Sandbox template | `orgatlas-ingest-ts`, grammar smoke test passing at build time |
 | `/ask` synthesis | LLM-first over `zai-org/GLM-5.3-Flash`, grounded citations, deterministic fallback; verified live |
-| `/ask` routing | Graph-driven: terms resolve to real nodes, and the node's label picks the intent. 463-test suite covers it |
+| `/ask` routing | Graph-driven: terms resolve to real nodes, and the node's label picks the intent |
+| Slack bot | Answers on mention in allowlisted channels, from the same `AskService.answer()` the API uses. 21 tests |
+| Descriptions | Complete to 5,000 characters, cut only at a sentence boundary and only when marked |
 
 ## Delivered, in order
 
@@ -33,6 +35,8 @@ Update this whenever a milestone lands or an item below is closed.
 - A model fallback that runs only where the authors wrote nothing usable, with full provenance.
 - Read-only MCP context server with tools, resources, and prompts.
 - LLM-first `/ask`: the model synthesizes an answer from retrieved packages and must cite its sources, with a deterministic graph-fact fallback when the provider fails or the answer cites nothing it was given.
+- A Slack bot so a developer or an agent can ask in the channel where the question already arises, and get
+  a cited answer instead of a guess. Socket Mode, so it runs from a laptop with no public URL.
 - `/ask` answering questions about the ingested repository, not only the fictional organisation. Terms
   are resolved against the graph in one round trip and the resolved node's label chooses between
   ownership, change impact, decisions, onboarding, declarations, files, and commit history.
@@ -40,6 +44,14 @@ Update this whenever a milestone lands or an item below is closed.
 - A filter-aware prune tool for removing graph nodes a current filter set would no longer admit.
 
 ## Open work, in priority order
+
+### 0. Stored descriptions still hold the old 400-character summaries
+The extraction limit was raised to 5,000 characters and now cuts at a sentence
+boundary, but the graph still holds summaries produced under the old limit. The
+ingest cache keeps the finished summaries rather than the source text, so they
+cannot be recomputed without re-running the ingest. Until that happens, a live
+`describe_file` still returns a clipped description. This is the one item on this
+list that a re-ingest closes outright.
 
 ### 1. MCP authentication is not implemented
 The `/mcp` route mounts only when `ENVIRONMENT` is `development`, is never added to the browser CORS allowlist, and startup fails loudly if `MCP_API_TOKEN` is set without a verifier. That is safe, but it means the surface cannot yet be exposed to a real remote agent. This is the only item that blocks a deployed coding-agent demo.

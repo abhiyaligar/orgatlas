@@ -24,14 +24,4 @@ async def ask_question(body: AskQuestionRequest):
     if not question:
         raise HTTPException(status_code=400, detail="question must not be empty")
 
-    package = _ask.retrieve(question, body.context)
-
-    if package is None:
-        logger.info("No approved intent matched; returning insufficient evidence")
-        return _ask.insufficient(question)
-
-    package["confidence"] = _ask.confidence_for(
-        package.get("citations") or [], package.get("graph")
-    )
-    package = await _ask.synthesize(question, package)
-    return _ask.build_response(question, package)
+    return await _ask.answer(question, body.context)

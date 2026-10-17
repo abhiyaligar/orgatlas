@@ -49,6 +49,20 @@ class Settings(BaseSettings):
     # MCP context server security
     MCP_API_TOKEN: Optional[str] = None
 
+    # --- Slack (optional) ---------------------------------------------------
+    # Socket Mode is used rather than an Events API webhook because it opens an
+    # outbound connection. A developer can therefore run the bot from a laptop
+    # with no public URL and no inbound firewall rule, which is the same reason
+    # the MCP HTTP route is development-only.
+    SLACK_BOT_TOKEN: Optional[str] = None
+    SLACK_APP_TOKEN: Optional[str] = None
+    # Channels the bot will answer in. Empty means it stays silent everywhere,
+    # which is the safe default: a bot added to a workspace should not start
+    # talking until someone has said where it is allowed to.
+    SLACK_ALLOWED_CHANNELS: str = ""
+    # A question longer than this is not a question, it is a paste.
+    SLACK_MAX_QUESTION_CHARS: int = 800
+
     # Track A: repository ingestion via isolated E2B sandbox workers.
     # The sandbox clones and parses only; it never receives database or
     # model-provider credentials.

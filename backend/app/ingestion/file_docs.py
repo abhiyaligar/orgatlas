@@ -39,8 +39,17 @@ MARKDOWN_LINK_ONLY = re.compile(r"^[ \t]*\[.*\]\(.*\)[ \t]*$")
 TOML_TABLE = re.compile(r"^\[([^\]]+)\][ \t]*$", re.MULTILINE)
 YAML_KEY = re.compile(r"^([A-Za-z_][A-Za-z0-9_.-]*):", re.MULTILINE)
 
-MAX_SUMMARY_CHARS = 400
+# A summary is meant to be read, not skimmed. Cutting it at a few hundred
+# characters produced descriptions that stopped mid-word and left the reader
+# with a claim whose evidence was removed, which is the opposite of what a
+# context layer is for. Descriptions now run to a full paragraph; only
+# pathologically long ones are trimmed, and only at a sentence boundary.
+MAX_SUMMARY_CHARS = 5000
 MAX_SYMBOLS = 25
+
+# Where a trimmed summary may end without losing the sentence it was in the
+# middle of.
+_SENTENCE_END = re.compile(r"[.!?][\"')\]]*\s")
 
 PLACEHOLDER_KEYS = frozenset(
     {"", "your_nebius_api_key", "your_api_key", "none", "changeme", "placeholder"}
@@ -63,10 +72,23 @@ def _clean_doc_lines(lines: List[str]) -> str:
 
 
 def _truncate(text: str, limit: int = MAX_SUMMARY_CHARS) -> str:
+    """Normalise whitespace and, only if needed, cut at a sentence boundary.
+
+    A hard character cut leaves the reader holding half a claim with the rest of
+    its evidence removed. Where the limit is genuinely reached, the text is
+    trimmed back to the last sentence that fits and marked as continued, so the
+    cut is visible rather than silent.
+    """
     text = " ".join(text.split())
     if len(text) <= limit:
         return text
-    return text[: limit - 1].rstrip() + "\u2026"
+
+    window = text[: limit - 1]
+    cut = max(window.rfind(". "), window.rfind("! "), window.rfind("? "))
+    if cut >= limit // 2:
+        return window[: cut + 1].rstrip()
+
+    return window.rstrip() + " [truncated]"
 
 
 def rust_module_summary(text: str) -> str:

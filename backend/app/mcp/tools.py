@@ -49,6 +49,11 @@ ADVISORY_DISCLOSURE = (
 )
 
 
+# A symbol doc comment is the answer to "what does this do", so it is carried in
+# full rather than trimmed to a teaser line.
+MAX_SYMBOL_DOC_CHARS = 2000
+
+
 def _citation_dict(citation) -> Dict[str, Any]:
     """Kept for single-citation call sites; bulk conversion uses citations_to_sources."""
     return {
