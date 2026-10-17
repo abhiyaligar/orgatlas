@@ -292,3 +292,121 @@ class SymbolDescriptionResponse(BaseModel):
     matches: List[SymbolMatch] = Field(default_factory=list)
     guidance: List[str] = Field(default_factory=list)
     notes: List[str] = Field(default_factory=list)
+
+
+# --- Documents, Slack and extraction ----------------------------------------
+# Shaped around what an answer needs rather than around what the database
+# stores: the graph holds the structure, the relational store holds the text.
+
+class DocumentIngestStatus(BaseModel):
+    id: int
+    filename: str
+    kind: Optional[str] = None
+    status: str = "queued"
+    stage_detail: Optional[str] = None
+    documents_ingested: int = 0
+    decisions_extracted: int = 0
+    entities_linked: int = 0
+    metrics_extracted: int = 0
+    model_calls: int = 0
+    error_message: Optional[str] = None
+    created_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+class MetricResponse(BaseModel):
+    id: str
+    name: str
+    value: float
+    unit: str = "unknown"
+    baseline: Optional[str] = None
+    direction: str = "unknown"
+    quote: str = ""
+    document_id: Optional[str] = None
+
+
+class PersonInvolvement(BaseModel):
+    person_id: str
+    name: str
+    involvement: str = "unknown"
+    role: str = ""
+    quote: str = ""
+
+
+class QuotedStatement(BaseModel):
+    source_id: str
+    speaker: str
+    text: str
+    channel: str = ""
+    posted_at: Optional[str] = None
+    permalink: Optional[str] = None
+
+
+class DecisionEvidenceResponse(BaseModel):
+    """One decision with every kind of evidence attached to it.
+
+    Returned whole rather than as separate endpoints because the question these
+    answer is a single one: why was this decided, who was involved, what did it
+    achieve. Splitting it across six calls is how a reader ends up assembling the
+    story themselves and missing a part.
+    """
+
+    decision_id: str
+    title: str
+    summary: str = ""
+    rationale: str = ""
+    alternatives: str = ""
+    status: str = "unknown"
+    decided_at: Optional[str] = None
+    quote: str = ""
+
+    documents: List[Citation] = Field(default_factory=list)
+    people: List[PersonInvolvement] = Field(default_factory=list)
+    quotes: List[QuotedStatement] = Field(default_factory=list)
+    metrics: List[MetricResponse] = Field(default_factory=list)
+    commits: List[CommitSummary] = Field(default_factory=list)
+    migrated_from: List[str] = Field(default_factory=list)
+    migrated_to: List[str] = Field(default_factory=list)
+    incidents: List[Citation] = Field(default_factory=list)
+
+    # What the graph does not hold, said plainly rather than left as an absence.
+    notes: List[str] = Field(default_factory=list)
+
+
+class DocumentSummaryResponse(BaseModel):
+    id: str
+    title: str
+    kind: str
+    uri: Optional[str] = None
+    sha256: str
+    char_count: int = 0
+    author: Optional[str] = None
+    source_at: Optional[str] = None
+    summary: str = ""
+    decisions: int = 0
+    metrics: int = 0
+
+
+class SlackMessageIn(BaseModel):
+    channel_id: str
+    text: str
+    ts: Optional[str] = None
+    user: Optional[str] = None
+    author: Optional[str] = None
+    channel_name: Optional[str] = None
+    permalink: Optional[str] = None
+    thread_ts: Optional[str] = None
+    posted_at: Optional[str] = None
+    # What the message was about, resolved against existing graph nodes.
+    about: List[str] = Field(default_factory=list)
+
+
+class SlackMessageIngestRequest(BaseModel):
+    messages: List[SlackMessageIn] = Field(default_factory=list)
+
+
+class SlackIngestResponse(BaseModel):
+    messages: int = 0
+    attributed: int = 0
+    linked: int = 0
+    skipped: int = 0

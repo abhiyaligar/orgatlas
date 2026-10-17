@@ -134,7 +134,21 @@ def seeded_graph():
 def empty_graph():
     """Simulate an empty knowledge graph."""
     with ExitStack() as stack:
-        for method in ("get_decision_trace", "get_change_impact", "get_service_ownership", "get_onboarding_context", "get_entity_detail"):
+        methods = (
+            "get_decision_trace",
+            "get_decision_evidence",
+            "get_decision_documents",
+            "get_decision_incidents",
+            "get_decision_people",
+            "get_decision_discussion",
+            "get_decision_metrics",
+            "get_decision_migration",
+            "get_change_impact",
+            "get_service_ownership",
+            "get_onboarding_context",
+            "get_entity_detail",
+        )
+        for method in methods:
             stack.enter_context(patch.object(graph_gateway, method, return_value=None))
         yield
 

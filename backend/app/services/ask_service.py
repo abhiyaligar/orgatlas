@@ -26,12 +26,16 @@ from app.api.schemas import (
 )
 from app.core.config import settings
 from app.evidence.service import EvidenceService
-from app.graph.gateway import GraphGateway
+from app.graph.gateway import GraphGateway, graph_gateway
 from app.llm.grounding import lower_confidence, validate_citations
 from app.services.decision_service import DecisionTraceService
 from app.services.impact_service import ChangeImpactService
 from app.services.onboarding_service import OnboardingContextService
 from app.services.ownership_service import OwnershipService
+from app.services.decision_evidence_service import (
+    DecisionEvidenceService,
+    as_package as decision_evidence_package_fn,
+)
 from app.services.question_resolution import (
     INTENT_DECISION,
     INTENT_FILE,
@@ -159,15 +163,21 @@ class AskService:
         impact: Optional[ChangeImpactService] = None,
         onboarding: Optional[OnboardingContextService] = None,
         ownership: Optional[OwnershipService] = None,
+        decision_evidence: Optional[DecisionEvidenceService] = None,
         gateway: Optional[GraphGateway] = None,
         provider: Optional[SynthesisProvider] = None,
     ) -> None:
         self.evidence = evidence or EvidenceService()
-        self.gateway = gateway or GraphGateway()
+        # The shared gateway, not a fresh instance: one connection manager per
+        # process, and it is the object tests patch to simulate an empty graph.
+        self.gateway = gateway or graph_gateway
         self.decisions = decisions or DecisionTraceService(evidence=self.evidence)
         self.impact = impact or ChangeImpactService(evidence=self.evidence)
         self.onboarding = onboarding or OnboardingContextService(evidence=self.evidence)
         self.ownership = ownership or OwnershipService(evidence=self.evidence)
+        self.decision_evidence = decision_evidence or DecisionEvidenceService(
+            gateway=self.gateway
+        )
         self._provider = provider
         self._provider_loaded = provider is not None
 
@@ -392,6 +402,20 @@ class AskService:
         }
 
     def retrieve_decision(self, decision_id: str) -> Optional[Dict[str, Any]]:
+        """Answer a "why" question with every kind of evidence attached.
+
+        The full narrative -- documents, people, Slack quotes, stated metrics,
+        implementing commits -- replaces the thin decision row. A reader asking
+        why something happened is asking about the documents, the people and the
+        code, not about a status field.
+        """
+        evidence = self.decision_evidence.get_evidence(decision_id)
+        if evidence is not None:
+            package = decision_evidence_package_fn(evidence)
+            package["answer"] = self.decision_evidence.render(evidence)
+            package["graph"] = self._decision_subgraph(evidence)
+            return package
+
         result = self.decisions.trace_decision(decision_id)
         if result is None:
             return None
@@ -419,6 +443,52 @@ class AskService:
                 "Which incident led to this decision?",
             ],
         }
+
+    @staticmethod
+    def _decision_subgraph(evidence: Any) -> EvidenceSubgraph:
+        """A compact subgraph for the graph panel on a decision answer."""
+        nodes = [
+            GraphNode(
+                id=evidence.decision_id,
+                label="Decision",
+                name=evidence.title,
+                properties={"status": evidence.status, "decided_at": evidence.decided_at or ""},
+            )
+        ]
+        edges: List[GraphEdge] = []
+        paths: List[str] = []
+
+        for document in evidence.documents:
+            nodes.append(
+                GraphNode(id=document.source_id, label="Document", name=document.title)
+            )
+            edges.append(
+                GraphEdge(
+                    id=f"supported_by:{evidence.decision_id}->{document.source_id}",
+                    source=evidence.decision_id,
+                    target=document.source_id,
+                    type="SUPPORTED_BY",
+                )
+            )
+            paths.append(
+                f"{evidence.title} [Decision] --SUPPORTED_BY--> {document.title} [Document]"
+            )
+
+        for person in evidence.people:
+            nodes.append(GraphNode(id=person.person_id, label="Person", name=person.name))
+            edges.append(
+                GraphEdge(
+                    id=f"{person.involvement.lower()}:{person.person_id}->{evidence.decision_id}",
+                    source=person.person_id,
+                    target=evidence.decision_id,
+                    type=person.involvement,
+                )
+            )
+            paths.append(
+                f"{person.name} [Person] --{person.involvement}--> {evidence.title} [Decision]"
+            )
+
+        return EvidenceSubgraph(nodes=nodes, edges=edges, paths=paths[:12])
 
     def retrieve_impact(self, service_id: str) -> Optional[Dict[str, Any]]:
         result = self.impact.assess_impact(service_id)

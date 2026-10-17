@@ -2,7 +2,16 @@
 
 from fastapi import APIRouter
 
-from app.api.routes import ask, decisions, demo_prompts, entities, health, onboarding, repos
+from app.api.routes import (
+    ask,
+    decisions,
+    demo_prompts,
+    docs,
+    entities,
+    health,
+    onboarding,
+    repos,
+)
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -11,4 +20,5 @@ api_router.include_router(onboarding.router)
 api_router.include_router(decisions.router)
 api_router.include_router(entities.router)
 api_router.include_router(repos.router)
+api_router.include_router(docs.router)
 api_router.include_router(ask.router)

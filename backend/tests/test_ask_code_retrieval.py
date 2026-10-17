@@ -16,6 +16,10 @@ from app.services.question_resolution import ResolvedEntity
 
 def make_service(hits=None, symbol=None, symbol_file=None, description=None, history=None):
     gateway = MagicMock()
+    # The decision-evidence read is a separate concern; these tests are about
+    # routing and assembly, so it reports no evidence and the path under test
+    # is the one that was asked for.
+    gateway.get_decision_evidence.return_value = None
     gateway.search_entities_by_terms.return_value = hits or []
     gateway.get_code_symbol.return_value = symbol if symbol is not None else []
     gateway.get_symbol_file.return_value = symbol_file

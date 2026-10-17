@@ -361,3 +361,292 @@ RETURN d.id AS id,
        type(r) AS via
 LIMIT 5
 """
+
+# --- Document, Slack and Metric writes --------------------------------------
+# Every write is a MERGE on a stable id, so re-ingesting the same document
+# updates its node rather than creating a second copy with different contents.
+
+# 28. Upsert one ingested document.
+UPSERT_DOCUMENT = """
+MERGE (d:Document {id: $id})
+SET d.title = $title,
+    d.kind = $kind,
+    d.uri = $uri,
+    d.sha256 = $sha256,
+    d.char_count = $char_count,
+    d.summary = $summary,
+    d.author = $author,
+    d.source_at = $source_at,
+    d.ingested_at = $ingested_at,
+    d.extraction_model = $extraction_model
+RETURN d.id
+"""
+
+# 29. Link a document to the entities it talks about.
+UPSERT_DOCUMENT_EDGES = """
+UNWIND $edges AS edge
+MATCH (d:Document {id: $document_id})
+MATCH (t) WHERE t.id = edge.target_id
+MERGE (d)-[r:DOCUMENTS]->(t)
+SET r.role = edge.role
+RETURN count(r)
+"""
+
+# 30. Decisions extracted from a document.
+# Direction matters and follows the seed: a Decision is SUPPORTED_BY a
+# Document. Writing it the other way round produces an edge that no reader
+# traverses, which looks like a missing document rather than a wrong arrow.
+UPSERT_EXTRACTED_DECISIONS = """
+UNWIND $decisions AS row
+MERGE (d:Decision {id: $document_id + ':' + row.key})
+SET d.title = row.title,
+    d.summary = row.summary,
+    d.rationale = row.rationale,
+    d.alternatives = row.alternatives,
+    d.status = row.status,
+    d.decided_at = row.decided_at,
+    d.quote = row.quote,
+    d.source_document_id = $document_id
+WITH d, row
+MATCH (doc:Document {id: $document_id})
+MERGE (d)-[:SUPPORTED_BY]->(doc)
+RETURN d.id
+"""
+
+# 31. Who was involved in a decision, and in what role.
+# One query per involvement, because a relationship's type cannot be computed in
+# Cypher. The caller groups by involvement and issues one of these per group.
+# Every MERGE carries a label and an id: a bare MERGE (p) has no pattern to
+# match and silently binds an arbitrary node from the graph.
+UPSERT_DECISION_PROPOSERS = """
+UNWIND $people AS row
+MATCH (d:Decision {id: $decision_id})
+MERGE (p:Person {id: row.person_id})
+SET p.name = row.name
+MERGE (p)-[r:PROPOSED]->(d)
+SET r.quote = row.quote, r.role = row.role
+RETURN count(p)
+"""
+
+UPSERT_DECISION_APPROVERS = """
+UNWIND $people AS row
+MATCH (d:Decision {id: $decision_id})
+MERGE (p:Person {id: row.person_id})
+SET p.name = row.name
+MERGE (p)-[r:APPROVED]->(d)
+SET r.quote = row.quote, r.role = row.role
+RETURN count(p)
+"""
+
+UPSERT_DECISION_OBJECTORS = """
+UNWIND $people AS row
+MATCH (d:Decision {id: $decision_id})
+MERGE (p:Person {id: row.person_id})
+SET p.name = row.name
+MERGE (p)-[r:OBJECTED]->(d)
+SET r.quote = row.quote, r.role = row.role
+RETURN count(p)
+"""
+
+UPSERT_DECISION_DISCUSSANTS = """
+UNWIND $people AS row
+MATCH (d:Decision {id: $decision_id})
+MERGE (p:Person {id: row.person_id})
+SET p.name = row.name
+MERGE (p)-[r:DISCUSSED]->(d)
+SET r.quote = row.quote, r.role = row.role
+RETURN count(p)
+"""
+
+UPSERT_DECISION_IMPLEMENTERS = """
+UNWIND $people AS row
+MATCH (d:Decision {id: $decision_id})
+MERGE (p:Person {id: row.person_id})
+SET p.name = row.name
+MERGE (p)-[r:IMPLEMENTED_IN]->(d)
+SET r.quote = row.quote, r.role = row.role
+RETURN count(p)
+"""
+
+# 32. Metrics a document states, kept with the sentence that stated them.
+UPSERT_METRICS = """
+UNWIND $metrics AS row
+MERGE (m:Metric {id: $document_id + ':' + row.key})
+SET m.name = row.name,
+    m.value = row.value,
+    m.unit = row.unit,
+    m.baseline = row.baseline,
+    m.direction = row.direction,
+    m.quote = row.quote,
+    m.source_document_id = $document_id
+WITH m, row
+MATCH (doc:Document {id: $document_id})
+MERGE (doc)-[r:STATES_METRIC]->(m)
+RETURN m.id
+"""
+
+# 33. A Slack message, kept as an excerpt rather than a transcript.
+UPSERT_SLACK_MESSAGE = """
+MERGE (m:SlackMessage {id: $id})
+SET m.channel_id = $channel_id,
+    m.channel_name = $channel_name,
+    m.author = $author,
+    m.slack_user_id = $slack_user_id,
+    m.posted_at = $posted_at,
+    m.excerpt = $excerpt,
+    m.permalink = $permalink,
+    m.thread_ts = $thread_ts
+RETURN m.id
+"""
+
+# 34. What a Slack message was about, and who said it.
+UPSERT_SLACK_MESSAGE_EDGES = """
+UNWIND $edges AS edge
+MATCH (m:SlackMessage {id: $message_id})
+MATCH (t) WHERE t.id = edge.target_id
+MERGE (m)-[r:ABOUT]->(t)
+RETURN count(r)
+"""
+
+# 35. Attribute a Slack message to the person who sent it, where that person is
+# already in the graph. An unknown Slack identity is left unattributed rather
+# than invented as a new person.
+LINK_SLACK_AUTHOR = """
+MATCH (p) WHERE p.id IN $person_ids
+MATCH (m:SlackMessage {id: $message_id})
+MERGE (p)-[:QUOTED]->(m)
+RETURN count(p)
+"""
+
+# 36. Record that a decision moved from one technology to another.
+UPSERT_MIGRATION = """
+UNWIND $migrations AS row
+MATCH (d:Decision {id: $decision_id})
+MERGE (t:Technology {id: row.id})
+SET t.name = row.name
+MERGE (d)-[r:MIGRATED_FROM]->(t)
+RETURN count(t)
+"""
+
+# 37. The technology a decision moved to, as distinct from what it left.
+UPSERT_MIGRATION_TO = """
+UNWIND $migrations AS row
+MATCH (d:Decision {id: $decision_id})
+MERGE (t:Technology {id: row.id})
+SET t.name = row.name
+MERGE (d)-[r:MIGRATED_TO]->(t)
+RETURN count(t)
+"""
+
+# --- Decision evidence reads -------------------------------------------------
+# One traversal for the whole question. The reader wants a single story -- why,
+# who, what was said, what it achieved, what shipped it -- and six separate
+# calls is how a part of it gets left out.
+
+# 38. The decision itself. Documents, people, discussion, metrics and the
+# migration are separate queries: folding them into one aggregation with
+# OPTIONAL MATCH and a list filter loses rows on this engine, and a missing
+# document is worse than an extra round trip.
+GET_DECISION_EVIDENCE = """
+MATCH (d:Decision {id: $decision_id})
+RETURN d.id AS decision_id,
+       coalesce(d.title, '') AS title,
+       coalesce(d.summary, '') AS summary,
+       coalesce(d.rationale, '') AS rationale,
+       coalesce(d.alternatives, '') AS alternatives,
+       coalesce(d.status, 'unknown') AS status,
+       coalesce(d.decided_at, '') AS decided_at,
+       coalesce(d.quote, '') AS quote
+LIMIT 1
+"""
+
+# 39. Documents that support a decision, with the sentence that supports it.
+GET_DECISION_DOCUMENTS = """
+MATCH (d:Decision {id: $decision_id})-[:SUPPORTED_BY]->(doc:Document)
+RETURN doc.id AS id,
+       coalesce(doc.title, doc.name, '') AS title,
+       coalesce(doc.uri, '') AS uri,
+       coalesce(doc.author, '') AS author,
+       coalesce(doc.excerpt, '') AS excerpt
+ORDER BY title
+LIMIT $limit
+"""
+
+# 39b. Incidents that led to a decision.
+GET_DECISION_INCIDENTS = """
+MATCH (i:Incident)-[:LED_TO]->(d:Decision {id: $decision_id})
+RETURN i.id AS id,
+       coalesce(i.title, i.name, '') AS title,
+       coalesce(i.uri, '') AS uri,
+       coalesce(i.severity, '') AS severity
+ORDER BY title
+LIMIT $limit
+"""
+
+# 39c. Who was involved, and in what role, with the sentence that says so.
+# The relationship types are matched by prefix rather than by `type(r) IN [...]`,
+# which this engine does not accept in a WHERE clause.
+GET_DECISION_PEOPLE = """
+MATCH (p)-[r]->(d:Decision {id: $decision_id})
+WHERE type(r) = 'PROPOSED' OR type(r) = 'APPROVED' OR type(r) = 'OBJECTED'
+   OR type(r) = 'DISCUSSED' OR type(r) = 'IMPLEMENTED_IN'
+RETURN p.id AS person_id,
+       coalesce(p.name, '') AS name,
+       type(r) AS involvement,
+       coalesce(r.role, '') AS role,
+       coalesce(r.quote, '') AS quote
+ORDER BY involvement, name
+LIMIT $limit
+"""
+
+# 40. Slack messages about this decision, as excerpts.
+GET_DECISION_DISCUSSION = """
+MATCH (m:SlackMessage)-[:ABOUT]->(d:Decision {id: $decision_id})
+OPTIONAL MATCH (p)-[:QUOTED]->(m)
+RETURN m.id AS source_id,
+       coalesce(p.name, m.author, 'unknown') AS speaker,
+       coalesce(m.excerpt, '') AS text,
+       coalesce(m.channel_name, m.channel_id, '') AS channel,
+       m.posted_at AS posted_at,
+       coalesce(m.permalink, '') AS permalink
+ORDER BY m.posted_at
+LIMIT $limit
+"""
+
+# 41. Numbers the documents state, kept with the sentence that stated them.
+GET_DECISION_METRICS = """
+MATCH (d:Decision {id: $decision_id})-[:SUPPORTED_BY]->(doc:Document)
+MATCH (doc:Document)-[:STATES_METRIC]->(m:Metric)
+RETURN m.id AS id,
+       m.name AS name,
+       m.value AS value,
+       coalesce(m.unit, 'unknown') AS unit,
+       coalesce(m.baseline, '') AS baseline,
+       coalesce(m.direction, 'unknown') AS direction,
+       coalesce(m.quote, '') AS quote,
+       coalesce(doc.id, '') AS document_id
+LIMIT $limit
+"""
+
+# 42. The technologies a decision moved between.
+GET_DECISION_MIGRATION = """
+MATCH (d:Decision {id: $decision_id})-[r:MIGRATED_FROM|MIGRATED_TO]->(t:Technology)
+RETURN type(r) AS direction, coalesce(t.name, '') AS name
+ORDER BY direction, name
+LIMIT $limit
+"""
+
+# 43. Commits by the people involved, newest first. This is the evidence behind
+# "who actually built it", as opposed to who spoke about it.
+GET_PEOPLE_COMMITS = """
+UNWIND $person_ids AS person_id
+MATCH (p {id: person_id})<-[:AUTHORED]-(c:Commit)
+RETURN c.id AS sha,
+       coalesce(c.message, '') AS message,
+       c.authored_at AS authored_at,
+       coalesce(c.pr_number, 0) AS pr_number,
+       coalesce(p.name, '') AS author,
+       coalesce(c.repository_id, '') AS repository_id
+ORDER BY c.authored_at DESC
+LIMIT $limit
+"""

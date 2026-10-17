@@ -377,6 +377,245 @@ class GraphGateway:
             for row in rows
         ]
 
+    # --- Document, Slack and Metric writes --------------------------------------
+
+    # --- Decision evidence reads -----------------------------------------------
+
+    def get_decision_evidence(self, decision_id: str) -> Optional[Dict[str, Any]]:
+        """The decision itself, with its documents and the incidents behind it."""
+        rows = self._execute(queries.GET_DECISION_EVIDENCE, {"decision_id": decision_id})
+        if not rows:
+            return None
+        row = rows[0]
+        return {
+            "decision_id": row[0],
+            "title": row[1],
+            "summary": row[2],
+            "rationale": row[3],
+            "alternatives": row[4],
+            "status": row[5],
+            "decided_at": row[6] or None,
+            "quote": row[7],
+        }
+
+    def get_decision_documents(self, decision_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        rows = self._execute(
+            queries.GET_DECISION_DOCUMENTS,
+            {"decision_id": decision_id, "limit": clamp_limit(limit)},
+        )
+        return [
+            {"id": r[0], "title": r[1], "uri": r[2] or None, "author": r[3], "excerpt": r[4]}
+            for r in rows
+        ]
+
+    def get_decision_incidents(self, decision_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        rows = self._execute(
+            queries.GET_DECISION_INCIDENTS,
+            {"decision_id": decision_id, "limit": clamp_limit(limit)},
+        )
+        return [{"id": r[0], "title": r[1], "uri": r[2] or None, "severity": r[3]} for r in rows]
+
+    def get_decision_people(self, decision_id: str, limit: int = 25) -> List[Dict[str, Any]]:
+        rows = self._execute(
+            queries.GET_DECISION_PEOPLE,
+            {"decision_id": decision_id, "limit": clamp_limit(limit)},
+        )
+        return [
+            {"person_id": r[0], "name": r[1], "involvement": r[2], "role": r[3], "quote": r[4]}
+            for r in rows
+        ]
+
+    def get_decision_discussion(
+        self, decision_id: str, limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        rows = self._execute(
+            queries.GET_DECISION_DISCUSSION,
+            {"decision_id": decision_id, "limit": clamp_limit(limit)},
+        )
+        return [
+            {
+                "source_id": r[0],
+                "speaker": r[1],
+                "text": r[2],
+                "channel": r[3],
+                "posted_at": r[4],
+                "permalink": r[5] or None,
+            }
+            for r in rows
+        ]
+
+    def get_decision_metrics(
+        self, decision_id: str, limit: int = 15
+    ) -> List[Dict[str, Any]]:
+        rows = self._execute(
+            queries.GET_DECISION_METRICS,
+            {"decision_id": decision_id, "limit": clamp_limit(limit)},
+        )
+        return [
+            {
+                "id": r[0],
+                "name": r[1],
+                "value": r[2],
+                "unit": r[3],
+                "baseline": r[4] or None,
+                "direction": r[5],
+                "quote": r[6],
+                "document_id": r[7] or None,
+            }
+            for r in rows
+        ]
+
+    def get_decision_migration(self, decision_id: str) -> Dict[str, List[str]]:
+        rows = self._execute(queries.GET_DECISION_MIGRATION, {"decision_id": decision_id, "limit": 20})
+        from_tech: List[str] = []
+        to_tech: List[str] = []
+        for direction, name in rows:
+            (from_tech if direction == "MIGRATED_FROM" else to_tech).append(name)
+        return {"from": from_tech, "to": to_tech}
+
+    def get_people_commits(
+        self, person_ids: List[str], limit: int = 25
+    ) -> List[Dict[str, Any]]:
+        """Commits authored by the people involved, newest first."""
+        person_ids = [pid for pid in person_ids if pid]
+        if not person_ids:
+            return []
+        rows = self._execute(
+            queries.GET_PEOPLE_COMMITS,
+            {"person_ids": person_ids, "limit": clamp_limit(limit)},
+        )
+        return [
+            {
+                "sha": r[0],
+                "message": r[1],
+                "authored_at": r[2],
+                "pr_number": int(r[3]) if r[3] else None,
+                "author": r[4],
+                "repository_id": r[5],
+            }
+            for r in rows
+        ]
+
+    def upsert_document(self, record: Dict[str, Any]) -> None:
+        self._execute(queries.UPSERT_DOCUMENT, record)
+
+    def link_document(self, document_id: str, edges: List[Dict[str, Any]]) -> int:
+        """Link a document to the nodes it talks about."""
+        if not edges:
+            return 0
+        rows = self._execute(
+            queries.UPSERT_DOCUMENT_EDGES,
+            {"document_id": document_id, "edges": edges},
+        )
+        return rows[0][0] if rows else 0
+
+    def upsert_extracted_decisions(
+        self, document_id: str, decisions: List[Dict[str, Any]]
+    ) -> List[str]:
+        """Write decisions extracted from a document and return their ids."""
+        if not decisions:
+            return []
+        rows = self._execute(
+            queries.UPSERT_EXTRACTED_DECISIONS,
+            {"document_id": document_id, "decisions": decisions},
+        )
+        return [row[0] for row in rows]
+
+    def upsert_decision_people(
+        self, decision_id: str, people: List[Dict[str, Any]]
+    ) -> int:
+        """Attribute people to a decision, grouped by how they were involved."""
+        if not people:
+            return 0
+
+        by_involvement: Dict[str, List[Dict[str, Any]]] = {}
+        for person in people:
+            by_involvement.setdefault(person.get("involvement") or "unknown", []).append(person)
+
+        queries_by_involvement = {
+            "proposed": queries.UPSERT_DECISION_PROPOSERS,
+            "approved": queries.UPSERT_DECISION_APPROVERS,
+            "objected": queries.UPSERT_DECISION_OBJECTORS,
+            "discussed": queries.UPSERT_DECISION_DISCUSSANTS,
+            "implemented": queries.UPSERT_DECISION_IMPLEMENTERS,
+        }
+
+        written = 0
+        for involvement, rows in by_involvement.items():
+            query = queries_by_involvement.get(involvement)
+            if query is None:
+                continue
+            result = self._execute(query, {"decision_id": decision_id, "people": rows})
+            written += result[0][0] if result else 0
+        return written
+
+    def upsert_metrics(
+        self, document_id: str, metrics: List[Dict[str, Any]]
+    ) -> List[str]:
+        if not metrics:
+            return []
+        rows = self._execute(
+            queries.UPSERT_METRICS,
+            {"document_id": document_id, "metrics": metrics},
+        )
+        return [row[0] for row in rows]
+
+    def record_migration(
+        self, decision_id: str, migrations: List[Dict[str, Any]]
+    ) -> int:
+        """Record the technology a decision moved away from."""
+        if not migrations:
+            return 0
+        rows = self._execute(
+            queries.UPSERT_MIGRATION,
+            {"decision_id": decision_id, "migrations": migrations},
+        )
+        return rows[0][0] if rows else 0
+
+    def record_migration_to(
+        self, decision_id: str, migrations: List[Dict[str, Any]]
+    ) -> int:
+        """Record the technology a decision moved to.
+
+        Kept separate from :meth:`record_migration` because the two ends of a
+        migration mean opposite things, and collapsing them into one type would
+        read as "moved away from" for both.
+        """
+        if not migrations:
+            return 0
+        rows = self._execute(
+            queries.UPSERT_MIGRATION_TO,
+            {"decision_id": decision_id, "migrations": migrations},
+        )
+        return rows[0][0] if rows else 0
+
+    def upsert_slack_message(self, record: Dict[str, Any]) -> None:
+        self._execute(queries.UPSERT_SLACK_MESSAGE, record)
+
+    def link_slack_message(
+        self, message_id: str, edges: List[Dict[str, Any]]
+    ) -> int:
+        if not edges:
+            return 0
+        rows = self._execute(
+            queries.UPSERT_SLACK_MESSAGE_EDGES,
+            {"message_id": message_id, "edges": edges},
+        )
+        return rows[0][0] if rows else 0
+
+    def link_slack_author(
+        self, message_id: str, person_ids: List[str]
+    ) -> int:
+        """Attribute a message to a person already in the graph."""
+        person_ids = [pid for pid in person_ids if pid]
+        if not person_ids:
+            return 0
+        rows = self._execute(
+            queries.LINK_SLACK_AUTHOR,
+            {"message_id": message_id, "person_ids": person_ids},
+        )
+        return rows[0][0] if rows else 0
+
     def find_related_decisions(self, node_id: str) -> List[Dict[str, Any]]:
         """Decisions directly connected to a node, for "why" questions.
 
