@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     # MCP context server security
     MCP_API_TOKEN: Optional[str] = None
 
+    # --- MCP transport ------------------------------------------------------
+    # Host headers MCP will answer to. Localhost is allowed in development;
+    # in production this must be set or every request is refused as a
+    # DNS-rebinding attempt. Comma-separated; `host:*` allows any port.
+    MCP_ALLOWED_HOSTS: str = ""
+
     # --- Slack (optional) ---------------------------------------------------
     # Socket Mode is used rather than an Events API webhook because it opens an
     # outbound connection. A developer can therefore run the bot from a laptop

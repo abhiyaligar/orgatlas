@@ -162,14 +162,27 @@ class TestMountSafety:
             mock_settings.MCP_API_TOKEN = None
             assert mount_dev_only(FastAPI()) is False
 
-    def test_refuses_to_mount_unauthenticated_when_a_token_is_configured(self):
+    def test_a_configured_token_now_arms_authentication_rather_than_refusing(self):
+        """Previously a configured token made the route refuse to mount at all.
+
+        That was the honest response while no verifier existed. Now the token is
+        used, so the route mounts *and* requires it -- tested end to end in
+        test_mcp_auth.py.
+        """
         from fastapi import FastAPI
 
         with patch("app.mcp.server.settings") as mock_settings:
             mock_settings.ENVIRONMENT = "development"
-            mock_settings.MCP_API_TOKEN = "configured-but-unused"
-            with pytest.raises(RuntimeError, match="MCP_API_TOKEN"):
-                mount_dev_only(FastAPI())
+            mock_settings.MCP_API_TOKEN = "a-real-token"
+            mock_settings.MCP_ALLOWED_HOSTS = ""
+            app = FastAPI()
+            assert mount_dev_only(app) is True
+
+        with patch("app.mcp.auth.settings") as mock_auth_settings:
+            mock_auth_settings.MCP_API_TOKEN = "a-real-token"
+            from app.mcp.auth import auth_enabled
+
+            assert auth_enabled() is True
 
     def test_mounts_in_development(self):
         from fastapi import FastAPI

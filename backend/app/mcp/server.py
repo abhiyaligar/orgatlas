@@ -1,14 +1,17 @@
-"""MCP server construction and the development-only mount.
+"""MCP server construction and the environment-aware mount.
 
 Safety constraints:
 
-* The ``/mcp`` route is mounted **only** when ``ENVIRONMENT`` is
-  ``development``. It is absent entirely from preview and production rather
-  than running unauthenticated there.
-* The route is never added to ``CORS_ORIGINS``, so the browser client cannot
-  reach it even in development.
-* If an ``MCP_API_TOKEN`` is configured but no verifier is wired, startup
-  fails loudly instead of silently serving an open endpoint.
+* **Production requires authentication.** ``/mcp`` mounts outside development
+  only when ``MCP_API_TOKEN`` is set and a verifier accepts it. Without a token
+  the route is absent, rather than present and open.
+* **Development stays convenient but not silent.** The route mounts without a
+  token in development and says so loudly in the log, so an unauthenticated
+  socket is never a surprise.
+* The route is never added to ``CORS_ORIGINS``, so a browser client cannot reach
+  it in any environment. MCP is reached by agents, not by pages.
+* Token comparison is constant-time and no token is ever logged. See
+  ``app.mcp.auth``.
 """
 
 from __future__ import annotations
@@ -22,6 +25,9 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from app.core.config import settings
 from app.mcp import INSTRUCTIONS, SERVER_NAME, SERVER_VERSION
+from app.mcp.auth import auth_enabled
+from app.mcp.auth import describe as describe_auth
+from app.mcp.middleware import BearerAuthMiddleware
 from app.mcp.prompts import register_prompts
 from app.mcp.resources import register_resources
 from app.mcp.tools import register_tools
@@ -33,9 +39,19 @@ DEV_ENVIRONMENTS = {"development", "dev", "local"}
 
 # DNS-rebinding protection stays enabled. Only loopback origins may reach the
 # route; "testserver" is the host Starlette's TestClient presents.
+# Both the portless and any-port forms are listed: a client connecting to
+# "localhost" with no port was being refused as a rebinding attempt.
 DEV_TRANSPORT_SECURITY = TransportSecuritySettings(
-    allowed_hosts=["localhost:*", "127.0.0.1:*", "[::1]:*", "testserver"],
-    allowed_origins=["http://localhost:*", "http://127.0.0.1:*"],
+    allowed_hosts=[
+        "localhost",
+        "localhost:*",
+        "127.0.0.1",
+        "127.0.0.1:*",
+        "[::1]",
+        "[::1]:*",
+        "testserver",
+    ],
+    allowed_origins=["http://localhost", "http://localhost:*", "http://127.0.0.1", "http://127.0.0.1:*"],
 )
 
 
@@ -52,37 +68,72 @@ def create_server() -> MCPServer:
     return server
 
 
+def _transport_security(is_development: bool) -> TransportSecuritySettings:
+    """Which Host and Origin headers this server will answer to.
+
+    In production the published host must be stated explicitly. Left empty,
+    every request is refused as a DNS-rebinding attempt -- which is the correct
+    failure, but a confusing one for an operator who has not configured it yet,
+    so the warning below says so at startup.
+    """
+    if is_development:
+        return DEV_TRANSPORT_SECURITY
+
+    hosts = [
+        host.strip()
+        for host in (settings.MCP_ALLOWED_HOSTS or "").replace(";", ",").split(",")
+        if host.strip()
+    ]
+    if not hosts:
+        logger.warning(
+            "MCP_ALLOWED_HOSTS is empty: every MCP request will be refused as a "
+            "DNS-rebinding attempt. Set it to the host MCP is published at."
+        )
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=hosts,
+        allowed_origins=[f"https://{host}" for host in hosts],
+    )
+
+
 def mount_dev_only(app, server: Optional[MCPServer] = None) -> bool:
     """Mount the MCP ASGI app on a FastAPI instance in development only.
 
     Returns True when mounted.
     """
     environment = (settings.ENVIRONMENT or "").strip().lower()
+    is_development = environment in DEV_ENVIRONMENTS
 
-    if environment not in DEV_ENVIRONMENTS:
-        logger.info(
-            "MCP route not mounted: ENVIRONMENT=%s. It is development-only.", environment
+    if not auth_enabled() and not is_development:
+        # Fail closed: outside development an unauthenticated context server
+        # would expose decision history and repository structure to anyone who
+        # can reach the port. Absent is better than open.
+        logger.warning(
+            "MCP route not mounted: ENVIRONMENT=%s requires MCP_API_TOKEN.", environment
         )
         return False
 
-    if settings.MCP_API_TOKEN:
-        raise RuntimeError(
-            "MCP_API_TOKEN is configured but /mcp mounts without authentication in "
-            "development. Either set ENVIRONMENT to a non-development value or remove "
-            "MCP_API_TOKEN until a verifier is implemented."
-        )
-
     resolved = server or create_server()
+
 
     # ``streamable_http_app()`` returns a Starlette app whose only route is
     # already "/mcp". Mounting it under "/mcp" again would produce "/mcp/mcp",
     # so it is mounted at the host root and requests for /mcp fall through to
     # it. API routes are registered before this call and keep precedence.
-    streamable = resolved.streamable_http_app(
+    streamable_kwargs = dict(
         json_response=True,
         stateless_http=True,
-        transport_security=DEV_TRANSPORT_SECURITY,
+        # In production the host header must match the published origin, which
+        # is what stops a DNS-rebinding attack from reaching the socket through
+        # a browser. In development localhost is allowed.
+        transport_security=_transport_security(is_development),
     )
+    streamable = resolved.streamable_http_app(**streamable_kwargs)
+
+    # One block of middleware guards every method, rather than the SDK being
+    # handed a provider that covers only the ones it knows to check. The
+    # lifespan is taken from the inner app, since the wrapper has no router.
+    served = BearerAuthMiddleware(streamable) if auth_enabled() else streamable
 
     # Starlette does not forward lifespan events to mounted applications, and
     # the MCP session manager needs its lifespan to be running before any
@@ -97,12 +148,23 @@ def mount_dev_only(app, server: Optional[MCPServer] = None) -> bool:
                 yield
 
     app.router.lifespan_context = _combined_lifespan
-    app.mount("/", streamable)
+    app.mount("/", served)
 
-    logger.warning(
-        "MCP context server mounted unauthenticated at %s (development only).",
-        MCP_MOUNT_PATH,
-    )
+    summary = describe_auth()
+    if summary["authenticated"]:
+        logger.warning(
+            "MCP context server mounted at %s (authenticated, %d token(s), scope %s).",
+            MCP_MOUNT_PATH,
+            summary["token_count"],
+            summary["scope"],
+        )
+    else:
+        logger.warning(
+            "MCP context server mounted at %s WITHOUT authentication "
+            "(ENVIRONMENT=%s). Do not expose this beyond localhost.",
+            MCP_MOUNT_PATH,
+            environment,
+        )
     return True
 
 

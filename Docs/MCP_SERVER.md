@@ -111,6 +111,59 @@ Deploy the MCP server as a separately authenticated service on Render, or isolat
 5. A response with missing evidence says so explicitly rather than guessing.
 6. A question about a named function returns its signature, documentation, file, and line — or states that the declaration carries no doc comment.
 
+## Authentication
+
+The HTTP route requires a bearer token read from `MCP_API_TOKEN` in `.env`.
+
+```bash
+# .env -- comma-separated, so a secret can be rotated by running both
+MCP_API_TOKEN=old-token,new-token
+MCP_ALLOWED_HOSTS=orgatlas.example.com
+```
+
+| Environment | `MCP_API_TOKEN` set | Result |
+| --- | --- | --- |
+| development | no | Mounts open, logs a warning on every start |
+| development | yes | Mounts, **requires** the token |
+| production | no | **Not mounted.** `/mcp` returns 404 |
+| production | yes | Mounts, **requires** the token |
+
+Absent rather than open is the deliberate choice: a context server exposes
+decision history, incident records and repository structure, and a route that
+exists without a boundary will eventually be reached without one.
+
+**`MCP_ALLOWED_HOSTS` is also required in production.** With DNS-rebinding
+protection on and no allowed host, every request is refused. That is the correct
+failure but a confusing one, so startup warns about it.
+
+### What the check guarantees
+
+- **Constant-time comparison.** `secrets.compare_digest` for every configured
+  token, none short-circuiting, so timing does not reveal the secret or which
+  token matched.
+- **No token is ever logged** ? not at startup, not on rejection. The startup
+  line reports how many tokens are configured, never their values.
+- **A rejection is undifferentiated.** An unknown token and a missing header
+  produce the same 401, because that distinction is free for an attacker to probe.
+- **Every method is covered.** The check is ASGI middleware wrapping the mounted
+  app, so a method added to the server later is guarded without anyone
+  remembering to add it.
+- **Read-only regardless.** Authentication gates *who* may ask; it does not grant
+  anything new. Every tool remains read-only.
+
+### What it is not
+
+This is one shared secret, not OAuth 2.1. It suits a single self-hosted server
+with one known client. A deployment serving several independent clients needs
+per-client credentials, expiry, and revocation, which is a different piece of
+work. `StaticTokenVerifier` in earlier drafts of this module wrapped the SDK's
+token provider; the shipped implementation is deliberately simpler.
+
+The stdio transport used by local agent hosts is unaffected: it inherits the
+user's own filesystem and process permissions and is not reachable over a socket.
+
+---
+
 ## Deferred work
 
 - Real authentication and authorization for MCP clients.
