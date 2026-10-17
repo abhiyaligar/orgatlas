@@ -265,14 +265,30 @@ class DocumentIngestor:
             if outcome.error:
                 summary["extraction_errors"].append(f"{parsed.id}: {outcome.error}")
 
-            counts = outcome.result.counts()
-            summary["decisions"] += counts["decisions"]
-            summary["metrics"] += counts["metrics"]
-            summary["people"] += counts["people"]
-
             emit(f"storing {label}")
             self._store(parsed, sha256, outcome)
             self._store_extraction(parsed, sha256, outcome)
+
+            # The Document node must exist before anything links to it. Every
+            # writer below MATCHes on it, so writing it last silently drops each
+            # row: the MERGE still creates the decision node, but the MATCH finds
+            # no document, so no SUPPORTED_BY edge is written and no id comes
+            # back -- which also means no people and no migration.
+            self.gateway.upsert_document(
+                {
+                    "id": parsed.id,
+                    "title": parsed.title,
+                    "kind": parsed.kind,
+                    "uri": parsed.metadata.get("uri"),
+                    "sha256": sha256,
+                    "char_count": parsed.char_count,
+                    "summary": parsed.text[:5000],
+                    "author": parsed.metadata.get("author"),
+                    "source_at": parsed.metadata.get("source_at"),
+                    "ingested_at": _now().isoformat(),
+                    "extraction_model": outcome.model,
+                }
+            )
 
             emit(f"writing {label}")
             result = outcome.result
@@ -310,9 +326,12 @@ class DocumentIngestor:
                 }
                 for person in result.people
             ]
+            written_people = 0
             if people_rows:
                 for decision_id in by_key.values():
-                    self.gateway.upsert_decision_people(decision_id, people_rows)
+                    written_people += self.gateway.upsert_decision_people(
+                        decision_id, people_rows
+                    )
 
             metric_rows = [
                 {
@@ -326,24 +345,14 @@ class DocumentIngestor:
                 }
                 for metric in result.metrics
             ]
-            if metric_rows:
-                self.gateway.upsert_metrics(parsed.id, metric_rows)
-
-            self.gateway.upsert_document(
-                {
-                    "id": parsed.id,
-                    "title": parsed.title,
-                    "kind": parsed.kind,
-                    "uri": parsed.metadata.get("uri"),
-                    "sha256": sha256,
-                    "char_count": parsed.char_count,
-                    "summary": parsed.text[:5000],
-                    "author": parsed.metadata.get("author"),
-                    "source_at": parsed.metadata.get("source_at"),
-                    "ingested_at": _now().isoformat(),
-                    "extraction_model": outcome.model,
-                }
+            written_metrics = (
+                self.gateway.upsert_metrics(parsed.id, metric_rows) if metric_rows else []
             )
+            # Counted from what the graph accepted rather than from what the
+            # model proposed, so the job reports the numbers a reader would find.
+            summary["decisions"] += len(decision_ids)
+            summary["metrics"] += len(written_metrics)
+            summary["people"] += written_people
 
             edges = self._entity_edges(parsed, result)
             if edges:

@@ -364,3 +364,45 @@ def test_a_metric_renders_with_its_unit_and_baseline():
     )
     assert "120ms" in rendered
     assert "from 840ms" in rendered
+
+
+def test_the_document_node_exists_before_anything_links_to_it():
+    """Ordering bug guard.
+
+    Every graph writer MATCHes on the Document node, so writing it last drops
+    each row silently: the MERGE still creates the decision, the MATCH finds no
+    document, no SUPPORTED_BY edge is written, and no id comes back -- which
+    also silently loses every person and every migration.
+    """
+    ingestor, gateway = make_ingestor()
+    order = []
+    for name in ("upsert_document", "upsert_extracted_decisions",
+                 "upsert_decision_people", "upsert_metrics"):
+        original = getattr(gateway, name)
+
+        def record(*args, _n=name, _o=original, **kwargs):
+            order.append(_n)
+            return _o(*args, **kwargs)
+
+        setattr(gateway, name, record)
+
+    ingestor.ingest(MIGRATION_DOC.encode(), "migration.md")
+
+    assert order.index("upsert_document") < order.index("upsert_extracted_decisions")
+    assert order.index("upsert_extracted_decisions") < order.index("upsert_decision_people")
+
+
+def test_counts_report_what_reached_the_graph_not_what_the_model_proposed():
+    """A run that writes nothing must not report one decision extracted."""
+    gateway_calls = {"decisions": 0, "metrics": 0, "people": 0}
+
+    ingestor, gateway = make_ingestor()
+    gateway.upsert_extracted_decisions.return_value = []          # nothing accepted
+    gateway.upsert_metrics.return_value = []
+    gateway.upsert_decision_people.return_value = 0
+
+    summary = ingestor.ingest(MIGRATION_DOC.encode(), "migration.md")
+
+    assert summary["decisions"] == 0, "a decision the graph rejected is not counted"
+    assert summary["metrics"] == 0
+    assert summary["people"] == 0
