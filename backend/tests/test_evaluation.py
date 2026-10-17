@@ -33,33 +33,37 @@ LIVE = os.environ.get("ORGATLAS_LIVE_EVAL") == "1"
 
 
 def _graph_has_data() -> bool:
-    """Whether the demo knowledge graph is loaded for these live cases.
+    """Whether the demo knowledge graph the cases describe is loaded.
 
     This suite deliberately mocks nothing: it asks real questions and checks the
     real evidence. That makes it a genuine integration check and means it cannot
-    run against an empty database. Checking for one of the entities the expected
-    answers name is deliberate. A single leftover node is not a loaded graph, and
-    treating it as one turned a missing fixture into a wall of failures.
+    run against a database that lacks the demo entities.
+
+    Checking for one node is not enough, and getting that wrong is worse than
+    not checking at all. A single team is not the demo graph: matching on
+    ``team_payments`` alone let these cases run against an unrelated workspace
+    and fail on data they were never going to find. The cases are about
+    Checkout and Kafka, so those are what has to be present.
     """
     try:
         from app.graph.connection import graph_manager
 
         graph = graph_manager.get_graph()
-        for entity_id in ("svc_checkout", "svc_token_service", "tech_kafka", "team_payments"):
+        for entity_id in ("svc_checkout", "tech_kafka"):
             found = graph.query(
                 "MATCH (n {id: $id}) RETURN count(n)", {"id": entity_id}
             ).result_set
-            if found and int(found[0][0]) > 0:
-                return True
-        return False
+            if not found or int(found[0][0]) == 0:
+                return False
+        return True
     except Exception:
         return False
 
 
 requires_graph = pytest.mark.skipif(
     not _graph_has_data(),
-    reason="the evaluation suite asks real questions and needs the demo graph; "
-    "ingest a repository or run the seed script first",
+    reason="the evaluation suite asks real questions about the Checkout and Kafka "
+    "demo data; run the demo seed script first",
 )
 
 

@@ -595,6 +595,21 @@ def choose_route(
             reason=f"{entity.label} '{entity.name}' -> {intent} (score {best[0]:.1f})",
         )
 
+    # Onboarding asks about a team, not about one node, so it can be answered
+    # with nothing resolved at all. "What should a new engineer learn in their
+    # first week" names no entity in the graph, and the team falls back to the
+    # default exactly as the interface does when nobody has picked one.
+    if (
+        score_signals(question).get(INTENT_ONBOARDING, 0) > 0
+        and not _is_aggregate_question(question)
+    ):
+        return Route(
+            intent=INTENT_ONBOARDING,
+            entity=None,
+            alternates=(),
+            reason="onboarding question with no named node -> default team",
+        )
+
     # Nothing in the graph can answer what was asked. Reporting insufficient
     # evidence is the honest outcome; a fallback here would answer a different
     # question than the one that was put.

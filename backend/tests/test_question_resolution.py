@@ -368,3 +368,33 @@ def test_a_weak_question_about_a_named_node_still_finds_it():
 
     assert route is not None
     assert route.entity.name == "AuthService"
+
+
+# --- onboarding needs no named node ----------------------------------------
+
+
+def test_an_onboarding_question_routes_without_resolving_anything():
+    """Onboarding asks about a team, not a node, so it has no subject to find."""
+    route = choose_route("What should a new engineer learn in their first week?", [])
+
+    assert route is not None
+    assert route.intent == INTENT_ONBOARDING
+    assert route.entity is None
+
+
+def test_an_onboarding_phrase_still_loses_to_a_node_that_can_answer():
+    """A node that scored must not be discarded for a phrase-only fallback."""
+    route = choose_route(
+        "What does the AuthService class do in my first week?",
+        [entity("CodeSymbol", "AuthService", term="AuthService", quality=0)],
+    )
+
+    assert route is not None
+    assert route.intent == INTENT_SYMBOL
+
+
+def test_an_aggregate_onboarding_question_is_not_answered_by_default():
+    """The aggregate rule still holds when the question sounds like onboarding."""
+    route = choose_route("How many teams are there in my first week?", [])
+
+    assert route is None
