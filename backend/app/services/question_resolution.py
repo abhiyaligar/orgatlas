@@ -153,6 +153,10 @@ INTENT_PHRASES: Dict[str, Tuple[str, ...]] = {
         "symbol",
         "signature",
         "definition",
+        # "defined" is how the word is used in a question. Without it the
+        # phrase match misses and the name-only fallback has to carry it.
+        "defined",
+        "define",
         "implement",
         "declaration",
         "what does",
@@ -473,7 +477,30 @@ _SECONDARY_SUBJECT_BONUS = 1
 # specific claim and has to win, or the question answers about the type
 # instead of its history.
 _HISTORY_OVERRIDE_BONUS = 4
+# What a resolved node is worth on its own, with no phrase the router
+# recognises. It sits below any pair that a phrase did support, because a
+# phrase is the question stating what it wants and a node name is not.
+_EXACT_NAME_ONLY_SCORE = 2
+_PREFIX_NAME_ONLY_SCORE = 1
+_EXACT_MATCH_STRENGTH = 3
+_PREFIX_MATCH_STRENGTH = 2
 _EMPTY_SUBJECTS: Dict[str, int] = {}
+
+# Questions about a how-many rather than about a thing. They are not supported,
+# and a name-only fallback must not answer them: "how many teams does the
+# organization have" resolves to a CodeSymbol called "teams", and returning that
+# declaration would answer a different question than the one that was asked.
+_AGGREGATE_PHRASES = (
+    "how many",
+    "how much",
+    "number of",
+    "count of",
+    "total number",
+    "list all",
+    "list every",
+    "percentage",
+    "average",
+)
 
 
 def _has_history_override(question: str) -> bool:
@@ -481,6 +508,13 @@ def _has_history_override(question: str) -> bool:
     flat = re.sub(r"[^a-z0-9]+", " ", question.lower())
     padded = f" {flat.strip()} "
     return any(f" {phrase} " in padded for phrase in _HISTORY_OVERRIDE)
+
+
+def _is_aggregate_question(question: str) -> bool:
+    """True when the question asks for a count or a total rather than a thing."""
+    flat = re.sub(r"[^a-z0-9]+", " ", question.lower())
+    padded = f" {flat.strip()} "
+    return any(f" {phrase} " in padded for phrase in _AGGREGATE_PHRASES)
 
 
 def _score_pair(
@@ -492,7 +526,23 @@ def _score_pair(
 ) -> int:
     """Rank one (node, intent) answer against the alternatives."""
     supported = signals.get(intent, _UNSUPPORTED_SIGNAL)
+    strength = _match_strength(entity.term, entity.name)
     if supported <= 0:
+        # The question used no phrase this router knows. That used to be fatal,
+        # and it is why "where is verify_auth_otp defined" reported no evidence
+        # while the graph held the declaration and the term had resolved to it
+        # exactly. A name the question used verbatim is evidence in itself: the
+        # node's label has already decided which intents it could answer, so
+        # naming it does not smuggle in an intent the question never asked for.
+        #
+        # It is scored low on purpose. Any question carrying a recognised
+        # phrase outranks it, and a weak or incidental name match still fails.
+        if _is_aggregate_question(question):
+            return -1
+        if strength >= _EXACT_MATCH_STRENGTH:
+            return _EXACT_NAME_ONLY_SCORE
+        if strength >= _PREFIX_MATCH_STRENGTH:
+            return _PREFIX_NAME_ONLY_SCORE
         return -1
 
     score = supported * _LABEL_FIT

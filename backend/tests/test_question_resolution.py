@@ -247,3 +247,124 @@ def test_a_single_capitalised_name_counts_as_named():
     from app.services.question_resolution import distinctive_terms
 
     assert "Kafka" in distinctive_terms("Why Kafka?")
+
+
+# --- a resolved node may stand on its own -----------------------------------
+#
+# "Where is verify_auth_otp defined?" resolved to the declaration exactly and
+# still reported no evidence, because the phrase list said "definition" and the
+# question said "defined". Refusing a confidently resolved node is what kept the
+# code-level detail unreachable through ordinary English.
+
+
+def test_an_exact_name_routes_without_a_recognised_phrase():
+    route = choose_route(
+        "Where is verify_auth_otp defined?",
+        [entity("CodeSymbol", "verify_auth_otp", term="verify_auth_otp", quality=0)],
+    )
+
+    assert route is not None
+    assert route.intent == INTENT_SYMBOL
+    assert route.entity.name == "verify_auth_otp"
+
+
+def test_a_file_named_verbatim_routes_without_a_phrase():
+    route = choose_route(
+        "What changed in Navbar.jsx recently?",
+        [entity("File", "Navbar.jsx", term="Navbar.jsx", quality=0)],
+    )
+
+    assert route is not None, "the question names the file exactly"
+
+
+def test_defined_is_a_symbol_phrase():
+    assert score_signals("Where is it defined?").get(INTENT_SYMBOL, 0) >= 1
+
+
+def test_a_recognised_phrase_always_beats_a_name_on_its_own():
+    with_phrase = choose_route(
+        "What does verify_auth_otp do?",
+        [entity("CodeSymbol", "verify_auth_otp", term="verify_auth_otp", quality=0)],
+    )
+    without_phrase = choose_route(
+        "verify_auth_otp verify_auth_otp verify_auth_otp",
+        [entity("CodeSymbol", "verify_auth_otp", term="verify_auth_otp", quality=0)],
+    )
+
+    assert with_phrase is not None and without_phrase is not None
+    # Both resolve, but the phrase-supported pair is the better answer, so the
+    # scoring must not let the fallback outrank a stated intent.
+    assert _pair_score(with_phrase) >= _pair_score(without_phrase)
+
+
+def _pair_score(route) -> int:
+    """Recover the winning score from the reason the router records."""
+    import re
+
+    return int(re.search(r"score (-?\d+)", route.reason).group(1))
+
+
+def test_a_prefix_of_a_real_name_still_routes():
+    """"Where is the Auth class?" should reach AuthService, not bounce."""
+    route = choose_route(
+        "Auth class?",
+        [entity("CodeSymbol", "AuthService", term="Auth", quality=1)],
+    )
+
+    assert route is not None
+    assert route.entity.name == "AuthService"
+
+
+def test_a_prefix_match_scores_below_an_exact_one():
+    exact = choose_route(
+        "x",
+        [entity("CodeSymbol", "AuthService", term="AuthService", quality=0)],
+    )
+    prefix = choose_route(
+        "x",
+        [entity("CodeSymbol", "AuthService", term="Auth", quality=1)],
+    )
+
+    assert exact is not None and prefix is not None
+    assert _pair_score(exact) > _pair_score(prefix)
+
+
+def test_a_name_merely_containing_the_term_routes_to_nothing():
+    """Naming half a word from the middle is not naming the thing."""
+    route = choose_route(
+        "auth auth auth",
+        [entity("CodeSymbol", "send_auth_otp", term="auth", quality=2)],
+    )
+
+    assert route is None
+
+
+def test_an_aggregate_question_is_not_answered_by_a_similarly_named_node():
+    """The honesty rule: a count is not a declaration."""
+    route = choose_route(
+        "How many teams are there?",
+        [entity("CodeSymbol", "teams", term="teams", quality=0)],
+    )
+
+    assert route is None
+
+
+def test_a_node_cannot_carry_an_intent_its_label_cannot_answer():
+    """The fallback must not let a repository answer a question about a function."""
+    route = choose_route(
+        "repo repo repo",
+        [entity("Repository", "EstateX", term="EstateX", quality=0)],
+    )
+
+    assert route is None or route.intent != INTENT_SYMBOL
+
+
+def test_a_weak_question_about_a_named_node_still_finds_it():
+    """The whole point: ordinary English reaches code-level detail."""
+    route = choose_route(
+        "auth",
+        [entity("CodeSymbol", "AuthService", term="AuthService", quality=0)],
+    )
+
+    assert route is not None
+    assert route.entity.name == "AuthService"
