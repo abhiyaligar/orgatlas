@@ -338,6 +338,13 @@ class AskService:
                 self._subject_name(entity) or (entity.name if entity else "")
             )
         if intent == INTENT_FILE:
+            # A repository routes here too, because "what is the tech stack" is a
+            # question about a repository's files rather than about one file.
+            # Without this branch it fell through to a file id that could never
+            # exist, and the answer was a bare "insufficient evidence" while the
+            # graph held every file and its language.
+            if entity is not None and entity.label == LABEL_REPOSITORY:
+                return self.retrieve_repository(entity.entity_id, entity.name)
             file_id = self._entity_id_matching(entity, {LABEL_FILE})
             return self.retrieve_file(file_id) if file_id else None
         if intent == INTENT_HISTORY:
@@ -719,6 +726,102 @@ class AskService:
             "suggested_questions": [
                 f"What has changed recently in the file that declares {name}?",
                 f"What does {name} depend on?",
+            ],
+        }
+
+    def retrieve_repository(
+        self, repository_id: str, name: str = ""
+    ) -> Optional[Dict[str, Any]]:
+        """Answer a question about a repository from the files it contains.
+
+        The counts come from the graph rather than from a stored total, so a
+        repository that has been re-ingested reports what is there now. Test
+        files are excluded: they are written in the same languages as the code
+        they exercise and would otherwise inflate every language in the answer.
+        """
+        mix = self.gateway.get_repository_language_mix(repository_id)
+        if not mix:
+            return None
+
+        rows = self.gateway.get_repository_files(repository_id, per_language=3)
+        total = sum(entry["files"] for entry in mix)
+        label = name or repository_id
+
+        spoken = ", ".join(
+            f"{entry['language']} ({entry['files']} file{'s' if entry['files'] != 1 else ''})"
+            for entry in mix
+        )
+
+        nodes: List[GraphNode] = [
+            GraphNode(id=repository_id, label=LABEL_REPOSITORY, name=label, properties={})
+        ]
+        edges: List[GraphEdge] = []
+        paths: List[str] = []
+        citations: List[Citation] = []
+        described = 0
+        for entry in rows:
+            for sample in entry.get("samples") or []:
+                path = sample.get("path")
+                if not path:
+                    continue
+                summary = sample.get("summary") or ""
+                if summary:
+                    described += 1
+                file_node = GraphNode(
+                    id=f"{repository_id}::{path}",
+                    label=LABEL_FILE,
+                    name=path.rsplit("/", 1)[-1],
+                    properties={
+                        "path": path,
+                        "language": entry["language"],
+                        "is_test": False,
+                        "docs_source": sample.get("docs_source", ""),
+                    },
+                )
+                nodes.append(file_node)
+                edges.append(
+                    GraphEdge(
+                        id=f"{repository_id}::PART_OF::{path}",
+                        source=file_node.id,
+                        target=repository_id,
+                        type="PART_OF",
+                        properties={},
+                    )
+                )
+                paths.append(
+                    f"{file_node.name} [{LABEL_FILE}] <--PART_OF--> {label} [{LABEL_REPOSITORY}]"
+                )
+                citations.append(
+                    Citation(
+                        source_id=f"{repository_id}::{path}",
+                        title=path,
+                        type="file",
+                        url=None,
+                        excerpt=summary or None,
+                        author=None,
+                        created_at=None,
+                    )
+                )
+
+        return {
+            "intent": INTENT_FILE,
+            "entity_id": repository_id,
+            "answer": (
+                f"{label} is written in {spoken}, across {total} indexed files. "
+                f"{described} of the {len(citations)} sampled files carry a "
+                f"description read from their own source."
+            ),
+            "evidence_summary": (
+                f"Counted {total} File nodes carrying repository_id "
+                f"{repository_id!r} in the graph, tests excluded, and sampled "
+                f"{len(citations)} of them across {len(mix)} languages."
+            ),
+            "citations": citations,
+            "graph": EvidenceSubgraph(nodes=nodes, edges=edges, paths=paths[:12]),
+            "confidence": "supported" if total else "insufficient",
+            "suggested_questions": [
+                f"Which files changed most recently in {label}?",
+                f"Who changed {label}?",
             ],
         }
 

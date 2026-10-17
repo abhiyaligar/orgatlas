@@ -222,6 +222,20 @@ LIMIT 1
 """
 
 # 19. Authored description stored on a File during ingestion
+GET_REPOSITORY_FILES = """
+  MATCH (f:File)
+  WHERE f.repository_id = $repository_id
+    AND coalesce(f.is_test, false) = false
+  RETURN coalesce(f.language, 'Unknown') AS language,
+         count(f) AS files,
+         [x IN collect({
+            path: coalesce(f.path, ''),
+            summary: coalesce(f.summary, ''),
+            docs_source: coalesce(f.docs_source, '')
+         })[0..$per_language] | x] AS samples
+  ORDER BY files DESC
+"""
+
 GET_FILE_DESCRIPTION = """
 MATCH (f:File {id: $file_id})
 RETURN f.path AS path,

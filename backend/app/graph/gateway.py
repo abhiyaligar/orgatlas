@@ -293,6 +293,43 @@ class GraphGateway:
 
     # --- Authored file descriptions -------------------------------------------
 
+    def get_repository_files(
+        self, repository_id: str, per_language: int = 4
+    ) -> List[Dict[str, Any]]:
+        """Return a repository's languages, each with a few example files.
+
+        A repository asks about its own shape ("what is the tech stack"), which
+        is a question about the files rather than about any one of them. There
+        is no Cypher edge from a file to its repository, so this reads the
+        ``repository_id`` property the scanner stamped on every file.
+
+        The examples are sampled per language rather than taken as one long
+        list, because forty files of whichever language sorts first would answer
+        a question about the whole repository with one language.
+        """
+        rows = self._execute(
+            queries.GET_REPOSITORY_FILES,
+            {"repository_id": repository_id, "per_language": per_language},
+        )
+        return [
+            {
+                "language": row[0],
+                "files": int(row[1] or 0),
+                "samples": [dict(sample) for sample in (row[2] or [])],
+            }
+            for row in rows
+        ]
+
+    def get_repository_language_mix(
+        self, repository_id: str
+    ) -> List[Dict[str, Any]]:
+        """Count the files a repository has in each language, tests excluded."""
+        return [
+            {"language": entry["language"], "files": entry["files"]}
+            for entry in self.get_repository_files(repository_id, per_language=0)
+            if entry["language"] and str(entry["language"]).lower() != "unknown"
+        ]
+
     def get_file_description(self, file_id: str) -> Optional[Dict[str, Any]]:
         """Return the description extracted from the file's own source text."""
         rows = self._execute(queries.GET_FILE_DESCRIPTION, {"file_id": file_id})
