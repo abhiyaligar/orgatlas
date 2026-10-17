@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from app.graph.connection import graph_manager
 from app.graph import queries
@@ -8,6 +8,23 @@ from app.core.errors import GraphQueryError, OrgAtlasError
 logger = logging.getLogger(__name__)
 
 MAX_LIMIT = 200
+# Question resolution returns everything that matched a handful of terms, so it
+# needs a wider ceiling than a single paginated listing.
+MAX_TERM_RESULTS = 60
+
+
+def _dedupe_terms(terms: Sequence[str]) -> List[str]:
+    """Strip and de-duplicate candidate terms, keeping the caller's order.
+
+    Order is meaningful: the caller offers the most likely subject first, and a
+    stable de-duplication preserves that ranking instead of reshuffling it.
+    """
+    cleaned: List[str] = []
+    for raw in terms:
+        token = raw.strip()
+        if token and token not in cleaned:
+            cleaned.append(token)
+    return cleaned
 
 
 def clamp_limit(limit: int | None, ceiling: int = MAX_LIMIT) -> int:
@@ -356,6 +373,78 @@ class GraphGateway:
                 "kind": row[2],
                 "container": row[3],
                 "documented": row[4],
+            }
+            for row in rows
+        ]
+
+    def find_related_decisions(self, node_id: str) -> List[Dict[str, Any]]:
+        """Decisions directly connected to a node, for "why" questions.
+
+        Resolving "why did this happen" usually lands on the incident or the
+        ticket rather than the decision, and tracing an incident id as if it
+        were a decision id returns nothing. The decision is one hop away, so it
+        is looked up rather than guessed.
+        """
+        if not node_id:
+            return []
+        rows = self._execute(queries.FIND_RELATED_DECISIONS, {"node_id": node_id})
+        return [{"id": row[0], "title": row[1], "via": row[2]} for row in rows]
+
+    def search_entities_by_terms(self, terms: Sequence[str]) -> List[Dict[str, Any]]:
+        """Resolve several candidate terms in one query.
+
+        Ask latency is dominated by round trips, and a question can mention a
+        dozen words, so resolution is a single UNWIND rather than a lookup per
+        term. Each row reports the term that produced it so the caller can
+        attribute a match back to the question.
+        """
+        cleaned = _dedupe_terms(terms)
+        if not cleaned:
+            return []
+
+        rows = self._execute(
+            queries.SEARCH_ENTITIES_BY_TERMS,
+            {"terms": cleaned, "limit": MAX_TERM_RESULTS},
+        )
+        return [
+            {
+                "term": row[0],
+                "id": row[1],
+                "label": row[2],
+                "name": row[3],
+                "quality": row[4],
+            }
+            for row in rows
+        ]
+
+    def search_code_symbols_by_terms(
+        self, terms: Sequence[str], limit: int = 12
+    ) -> List[Dict[str, Any]]:
+        """Resolve candidate terms to declarations, with file and line attached."""
+        cleaned = _dedupe_terms(terms)
+        if not cleaned:
+            return []
+
+        rows = self._execute(
+            queries.SEARCH_CODE_SYMBOLS_BY_TERMS,
+            {"terms": cleaned, "limit": clamp_limit(limit)},
+        )
+        return [
+            {
+                "term": row[0],
+                "name": row[1],
+                "id": row[2],
+                "kind": row[3],
+                "signature": row[4],
+                "doc_comment": row[5],
+                "documented": row[6],
+                "line": row[7],
+                "visibility": row[8],
+                "container": row[9],
+                "language": row[10],
+                "path": row[11],
+                "file_id": row[12],
+                "is_test": row[13],
             }
             for row in rows
         ]

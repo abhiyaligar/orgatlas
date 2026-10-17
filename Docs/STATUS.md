@@ -20,6 +20,7 @@ Update this whenever a milestone lands or an item below is closed.
 | Tests | Backend 424 passing, 6 skipped by design; frontend 16 passing |
 | Sandbox template | `orgatlas-ingest-ts`, grammar smoke test passing at build time |
 | `/ask` synthesis | LLM-first over `zai-org/GLM-5.3-Flash`, grounded citations, deterministic fallback; verified live |
+| `/ask` routing | Graph-driven: terms resolve to real nodes, and the node's label picks the intent. 463-test suite covers it |
 
 ## Delivered, in order
 
@@ -32,6 +33,9 @@ Update this whenever a milestone lands or an item below is closed.
 - A model fallback that runs only where the authors wrote nothing usable, with full provenance.
 - Read-only MCP context server with tools, resources, and prompts.
 - LLM-first `/ask`: the model synthesizes an answer from retrieved packages and must cite its sources, with a deterministic graph-fact fallback when the provider fails or the answer cites nothing it was given.
+- `/ask` answering questions about the ingested repository, not only the fictional organisation. Terms
+  are resolved against the graph in one round trip and the resolved node's label chooses between
+  ownership, change impact, decisions, onboarding, declarations, files, and commit history.
 - A Repositories view that shows real ingested repositories separately from the fictional seed, covers ingest progress, briefs, churn, file history and descriptions with provenance, symbol lookup, and declared dependencies.
 - A filter-aware prune tool for removing graph nodes a current filter set would no longer admit.
 

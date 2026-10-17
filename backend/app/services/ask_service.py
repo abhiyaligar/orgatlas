@@ -15,16 +15,41 @@ blocks the deterministic answer.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Protocol
+from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
 
-from app.api.schemas import AskQuestionResponse, Citation, EvidenceSubgraph
+from app.api.schemas import (
+    AskQuestionResponse,
+    Citation,
+    EvidenceSubgraph,
+    GraphEdge,
+    GraphNode,
+)
 from app.core.config import settings
 from app.evidence.service import EvidenceService
+from app.graph.gateway import GraphGateway
 from app.llm.grounding import lower_confidence, validate_citations
 from app.services.decision_service import DecisionTraceService
 from app.services.impact_service import ChangeImpactService
 from app.services.onboarding_service import OnboardingContextService
 from app.services.ownership_service import OwnershipService
+from app.services.question_resolution import (
+    INTENT_DECISION,
+    INTENT_FILE,
+    INTENT_HISTORY,
+    INTENT_IMPACT,
+    INTENT_ONBOARDING,
+    INTENT_OWNERSHIP,
+    INTENT_SYMBOL,
+    LABEL_CODE_SYMBOL,
+    LABEL_COMMIT,
+    LABEL_FILE,
+    LABEL_REPOSITORY,
+    LABEL_SERVICE,
+    ResolvedEntity,
+    Route,
+    candidate_terms,
+    choose_route,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +114,26 @@ TEAM_ENTITIES = {
     "infrastructure": "team_platform",
 }
 
+# A "why" question can land on the decision itself or on the record that
+# motivated it.
+DECISION_LABELS = frozenset({"Decision", "Incident", "Document", "Ticket", "PullRequest"})
+
 DEFAULT_TEAM_ID = "team_payments"
 
 MAX_FACT_CHARS = 4000
+
+
+def _dedupe_declarations(declarations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """De-duplicate declarations gathered from several name lookups."""
+    seen = set()
+    unique = []
+    for declaration in declarations:
+        key = declaration.get("id")
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(declaration)
+    return unique
 
 
 class SynthesisProvider(Protocol):
@@ -113,9 +155,11 @@ class AskService:
         impact: Optional[ChangeImpactService] = None,
         onboarding: Optional[OnboardingContextService] = None,
         ownership: Optional[OwnershipService] = None,
+        gateway: Optional[GraphGateway] = None,
         provider: Optional[SynthesisProvider] = None,
     ) -> None:
         self.evidence = evidence or EvidenceService()
+        self.gateway = gateway or GraphGateway()
         self.decisions = decisions or DecisionTraceService(evidence=self.evidence)
         self.impact = impact or ChangeImpactService(evidence=self.evidence)
         self.onboarding = onboarding or OnboardingContextService(evidence=self.evidence)
@@ -187,30 +231,113 @@ class AskService:
 
     # --- evidence retrieval --------------------------------------------------
 
+    def resolve_question(
+        self, question: str
+    ) -> Tuple[Optional[Route], List[ResolvedEntity]]:
+        """Resolve a question against the graph.
+
+        Two things happen here that the old keyword router could not do. Terms
+        from the question are matched to the nodes that actually exist, so a
+        repository ingested last week is reachable by its own name. And the
+        intent is chosen from the label of the node that matched, so a word
+        appearing in the wrong question can no longer redirect it: "changed" no
+        longer forces change-impact analysis, because impact requires a Service
+        node to analyse.
+        """
+        terms = candidate_terms(question)
+        if not terms:
+            return None, []
+
+        rows = self.gateway.search_entities_by_terms(terms)
+        entities = [ResolvedEntity.from_row(row) for row in rows]
+        route = choose_route(question, entities)
+        logger.info(
+            "Ask resolved %d term(s) to %d node(s): %s",
+            len(terms),
+            len(entities),
+            route.reason if route else "no route",
+        )
+        return route, entities
+
     def retrieve(self, question: str, context: Optional[str]) -> Optional[Dict[str, Any]]:
         """Run the approved retrieval for a question and build its evidence package.
 
         Returns ``None`` when nothing matches, which the caller turns into an
         explicit insufficient-evidence response rather than a guess.
         """
-        intent = self.classify_intent(question)
-        logger.info("Ask intent '%s'", intent)
+        route, _entities = self.resolve_question(question)
+        if route is None:
+            logger.info("Ask found no route for the question")
+            return None
 
-        if intent == "onboarding":
+        intent = route.intent
+        entity = route.entity
+
+        if intent == INTENT_ONBOARDING:
             return self.retrieve_onboarding(question, context)
-        if intent == "decision":
-            decision_id = self.resolve_entity(question, DECISION_ENTITIES)
+        if intent == INTENT_DECISION:
+            decision_id = self._resolve_decision_id(question, entity)
             return self.retrieve_decision(decision_id) if decision_id else None
-        if intent in ("impact", "ownership"):
-            service_id = self.resolve_entity(question, SERVICE_ENTITIES)
+        if intent in (INTENT_IMPACT, INTENT_OWNERSHIP):
+            service_id = self._entity_id_matching(entity, {LABEL_SERVICE})
+            if service_id is None:
+                service_id = self.resolve_entity(question, SERVICE_ENTITIES)
             if not service_id:
                 return None
             return (
                 self.retrieve_impact(service_id)
-                if intent == "impact"
+                if intent == INTENT_IMPACT
                 else self.retrieve_ownership(service_id)
             )
+        if intent == INTENT_SYMBOL:
+            return self.retrieve_symbol(
+                self._subject_name(entity) or (entity.name if entity else "")
+            )
+        if intent == INTENT_FILE:
+            file_id = self._entity_id_matching(entity, {LABEL_FILE})
+            return self.retrieve_file(file_id) if file_id else None
+        if intent == INTENT_HISTORY:
+            if entity is None:
+                return None
+            return self.retrieve_history(entity)
+
         return None
+
+    def _resolve_decision_id(
+        self, question: str, entity: Optional[ResolvedEntity]
+    ) -> Optional[str]:
+        """Find the decision a "why" question is about.
+
+        A "why" question usually resolves to the incident that prompted the
+        decision, or the service the decision was made for, rather than to the
+        decision node itself. Tracing those ids directly returns nothing, so the
+        decision is followed one hop in the graph. The old keyword table is kept
+        only as a last resort, for a question that names no node at all.
+        """
+        if entity is not None:
+            if entity.label == "Decision":
+                return entity.entity_id
+            for related in self.gateway.find_related_decisions(entity.entity_id):
+                return related["id"]
+
+        return self.resolve_entity(question, DECISION_ENTITIES)
+
+    @staticmethod
+    def _entity_id_matching(
+        entity: Optional[ResolvedEntity], labels: set
+    ) -> Optional[str]:
+        """The resolved node's id, but only when its label is one we can act on."""
+        if entity is None or entity.label not in labels:
+            return None
+        return entity.entity_id
+
+    @staticmethod
+    def _subject_name(entity: Optional[ResolvedEntity]) -> str:
+        if entity is None:
+            return ""
+        # The question's own wording is the better lookup key when the node name
+        # is qualified; "Graph" should find the declaration named Graph.
+        return entity.term or entity.name
 
     def retrieve_onboarding(
         self, question: str, context: Optional[str]
@@ -360,6 +487,334 @@ class AskService:
             ],
         }
 
+    # --- code retrieval ------------------------------------------------------
+    #
+    # These answer questions about the ingested repository. Each one attaches a
+    # file path and, where it exists, a line number, so a generated answer can
+    # cite where in the code the claim came from. A symbol whose authors wrote
+    # no doc comment says so rather than receiving an invented explanation.
+
+    def retrieve_symbol(
+        self, name: str, file_id: str = "", limit: int = 6
+    ) -> Optional[Dict[str, Any]]:
+        matches = self.gateway.get_code_symbol(name, file_id=file_id, limit=limit)
+        exact = bool(matches)
+
+        if not matches:
+            # Resolution matches on a prefix, so "the open function" can land on
+            # open_payload while an exact-name lookup for "open" finds nothing.
+            # Rather than report no evidence for a symbol that clearly exists,
+            # widen to the declarations whose names contain the term.
+            near = self.gateway.search_code_symbols(name, limit=limit)
+            for candidate in near:
+                matches.extend(
+                    self.gateway.get_code_symbol(
+                        candidate["name"], file_id=file_id, limit=limit
+                    )
+                )
+            matches = _dedupe_declarations(matches)[:limit]
+
+        described = [match for match in matches if match.get("signature")]
+        if not described:
+            return None
+
+        lines = []
+        for match in described:
+            location = ""
+            if match.get("repository_id"):
+                location = ""
+            doc = match.get("doc_comment") or ""
+            lines.append(
+                f"- `{match['name']}` ({match.get('kind') or 'item'}"
+                f"{', ' + match['visibility'] if match.get('visibility') else ''}): "
+                f"{match.get('signature') or 'no signature recorded'}"
+            )
+            if doc:
+                lines.append(f"  Authored documentation: {doc}")
+            else:
+                lines.append(
+                    "  No authored documentation was found for this declaration."
+                )
+
+        undocumented = sum(1 for match in described if not match.get("doc_comment"))
+
+        citations: List[Citation] = []
+        neighbours: List[Tuple[GraphNode, str, str]] = []
+        for match in described[:4]:
+            file_node = self.gateway.get_symbol_file(match["id"])
+            if file_node is None:
+                continue
+            neighbour = GraphNode(
+                id=file_node["file_id"],
+                label=LABEL_FILE,
+                name=file_node["path"],
+                properties={
+                    "language": file_node.get("language", ""),
+                    "is_test": file_node.get("is_test", False),
+                },
+            )
+            neighbours.append((neighbour, "DECLARES", "in"))
+            # A declaration cites the file it is declared in. The line number
+            # travels with the citation so a reader can open the exact place.
+            citations.append(
+                Citation(
+                    source_id=match["id"],
+                    title=f"{file_node['path']}:{match.get('line', 0)}",
+                    type="code",
+                    excerpt=(match.get("signature") or match["name"])[:300],
+                    author="",
+                    url="",
+                )
+            )
+
+        primary = GraphNode(
+            id=described[0]["id"],
+            label=LABEL_CODE_SYMBOL,
+            name=described[0]["name"],
+            properties={
+                "kind": described[0].get("kind", ""),
+                "signature": described[0].get("signature", ""),
+                "line": described[0].get("line", 0),
+                "documented": bool(described[0].get("doc_comment")),
+                "visibility": described[0].get("visibility", ""),
+            },
+        )
+
+        headline = (
+            f"**Declarations matching `{name}`** ({len(described)} found)"
+            if exact
+            else (
+                f"**No declaration is named exactly `{name}`.** "
+                f"These {len(described)} declaration(s) contain that name:"
+            )
+        )
+
+        return {
+            "intent": INTENT_SYMBOL,
+            "entity_id": described[0]["id"],
+            "answer": (
+                headline
+                + "\n\n"
+                + "\n".join(lines)
+                + (
+                    f"\n\n{undocumented} of these have no authored documentation, "
+                    "so nothing further can be said about them from the repository "
+                    "alone."
+                    if undocumented
+                    else ""
+                )
+            ),
+            "evidence_summary": (
+                f"Resolved '{name}' against tree-sitter declarations in the "
+                f"ingested repository; {len(described)} match(es)."
+            ),
+            "citations": citations,
+            "graph": self._code_subgraph(primary, neighbours),
+            "declarations": described,
+            "suggested_questions": [
+                f"What has changed recently in the file that declares {name}?",
+                f"What does {name} depend on?",
+            ],
+        }
+
+    def retrieve_file(self, file_id: str) -> Optional[Dict[str, Any]]:
+        description = self.gateway.get_file_description(file_id)
+        if description is None:
+            return None
+
+        path = description.get("path") or description.get("name") or file_id
+        summary = description.get("summary")
+        provenance = []
+        if description.get("docs_source"):
+            provenance.append(str(description["docs_source"]))
+        if description.get("docs_model"):
+            provenance.append(str(description["docs_model"]))
+        if description.get("docs_trigger"):
+            provenance.append(f"trigger: {description['docs_trigger']}")
+
+        body = summary or "The authors left no usable description for this file."
+        symbols = description.get("symbols") or []
+
+        answer = (
+            f"**{path}**\n\n"
+            f"{body}\n\n"
+            f"**Declared symbols ({len(symbols)}):** "
+            + (", ".join(str(symbol) for symbol in symbols[:12]) or "none recorded")
+            + "\n\n"
+            f"**Provenance:** {'; '.join(provenance) or 'not recorded'}"
+        )
+
+        primary = GraphNode(
+            id=file_id,
+            label=LABEL_FILE,
+            name=path,
+            properties={
+                "language": description.get("language", ""),
+                "is_test": description.get("is_test", False),
+                "docs_source": description.get("docs_source", ""),
+            },
+        )
+        neighbours: List[Tuple[GraphNode, str, str]] = []
+        repository_id = description.get("repository_id")
+        if repository_id:
+            neighbours.append(
+                (
+                    GraphNode(
+                        id=str(repository_id),
+                        label=LABEL_REPOSITORY,
+                        name=str(repository_id),
+                        properties={},
+                    ),
+                    "PART_OF",
+                    "in",
+                )
+            )
+
+        return {
+            "intent": INTENT_FILE,
+            "entity_id": file_id,
+            "answer": answer,
+            "evidence_summary": (
+                f"Read the description OrgAtlas derived from {path} itself "
+                f"(source: {description.get('docs_source') or 'none'})."
+            ),
+            "citations": [
+                Citation(
+                    source_id=file_id,
+                    title=path,
+                    type="code",
+                    excerpt=(summary or "")[:300],
+                    author="",
+                    url="",
+                )
+            ],
+            "graph": self._code_subgraph(primary, neighbours),
+            "file": description,
+            "suggested_questions": [
+                f"How often has {path} changed recently?",
+                "Which commits touched this file?",
+            ],
+        }
+
+    def retrieve_history(
+        self, entity: ResolvedEntity, limit: int = 12
+    ) -> Optional[Dict[str, Any]]:
+        """Answer a history question about a symbol, file, or repository."""
+        target = ""
+        label = entity.label
+
+        if label == LABEL_FILE:
+            target = entity.entity_id
+        elif label in (LABEL_CODE_SYMBOL, LABEL_COMMIT):
+            symbol_file = self.gateway.get_symbol_file(entity.entity_id)
+            if symbol_file is not None:
+                target = symbol_file["file_id"]
+        elif label == LABEL_REPOSITORY:
+            target = entity.entity_id
+
+        if not target:
+            return None
+
+        history = self.gateway.get_file_history(target, limit=limit)
+        if not history:
+            return None
+
+        rows = []
+        for entry in history:
+            who = entry.get("author") or entry.get("author_id") or "unknown author"
+            rows.append(f"- `{str(entry.get('sha', ''))[:7]}` {entry.get('message', '')} ? {who}")
+
+        path = history[0].get("path") or entity.name
+
+        primary = GraphNode(
+            id=target,
+            label=LABEL_FILE,
+            name=str(path),
+            properties={"commit_count": len(history)},
+        )
+        commit_nodes: List[Tuple[GraphNode, str, str]] = []
+        citations: List[Citation] = []
+        for entry in history[:5]:
+            sha = str(entry.get("sha", ""))
+            commit_nodes.append(
+                (
+                    GraphNode(
+                        id=sha,
+                        label=LABEL_COMMIT,
+                        name=(entry.get("message") or sha)[:80],
+                        properties={"authored_at": entry.get("authored_at") or ""},
+                    ),
+                    "MODIFIES",
+                    "in",
+                )
+            )
+            citations.append(
+                Citation(
+                    source_id=sha,
+                    title=f"{sha[:7]} {(entry.get('message') or '')[:80]}",
+                    type="commit",
+                    excerpt="",
+                    author=entry.get("author") or "",
+                    url="",
+                )
+            )
+
+        return {
+            "intent": INTENT_HISTORY,
+            "entity_id": target,
+            "answer": (
+                f"**Change history for {path}** ({len(history)} commits)\n\n"
+                + "\n".join(rows)
+            ),
+            "evidence_summary": (
+                f"Walked {len(history)} commits that modified {path} in the "
+                "ingested repository."
+            ),
+            "citations": citations,
+            "graph": self._code_subgraph(primary, commit_nodes),
+            "history": history,
+            "suggested_questions": [
+                f"What does the most important symbol in {path} do?",
+                "Which authors changed this file most?",
+            ],
+        }
+
+    # --- code evidence graph --------------------------------------------------
+
+    def _code_subgraph(
+        self,
+        primary: GraphNode,
+        neighbours: Optional[List[Tuple[GraphNode, str, str]]] = None,
+    ) -> EvidenceSubgraph:
+        """Assemble the small subgraph a code answer is grounded in.
+
+        Code retrievals are leaf lookups, so there is no multi-hop traversal to
+        return. The subject and the two nodes it lives between -- its file and
+        that file's repository -- are enough for the panel to show where the
+        claim came from, and keep the file and line on the record.
+        """
+        nodes = [primary]
+        edges: List[GraphEdge] = []
+        paths: List[str] = []
+
+        for neighbour, edge_type, direction in neighbours or []:
+            nodes.append(neighbour)
+            source, target = (
+                (primary, neighbour) if direction == "out" else (neighbour, primary)
+            )
+            edges.append(
+                GraphEdge(
+                    id=f"{edge_type.lower()}:{source.id}->{target.id}",
+                    source=source.id,
+                    target=target.id,
+                    type=edge_type,
+                )
+            )
+            arrow = "-->" if direction == "out" else "<--"
+            paths.append(f"{primary.name} [{primary.label}] {arrow}{edge_type}--> {neighbour.name} [{neighbour.label}]")
+
+        return EvidenceSubgraph(nodes=nodes, edges=edges, paths=paths)
+
     # --- answer synthesis ----------------------------------------------------
 
     @staticmethod
@@ -483,8 +938,14 @@ class AskService:
         return AskQuestionResponse(**self.evidence.build_insufficient_response(question))
 
     def build_response(self, question: str, package: Dict[str, Any]) -> AskQuestionResponse:
-        """Assemble the final response, bounding the subgraph for rendering."""
-        package["graph"] = self.evidence.truncate_subgraph(package["graph"])
+        """Assemble the final response, bounding the subgraph for rendering.
+
+        A package may arrive without a subgraph. The code retrievers build one
+        when they can, but a retrieval that matched nothing renderable must not
+        be turned into a crash on the way out.
+        """
+        if package.get("graph") is not None:
+            package["graph"] = self.evidence.truncate_subgraph(package["graph"])
 
         confidence = package.get("confidence") or "partial"
         grounding = package.get("grounding")

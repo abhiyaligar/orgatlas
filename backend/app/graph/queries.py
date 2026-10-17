@@ -301,3 +301,63 @@ RETURN f.id AS file_id,
        coalesce(f.is_test, false) AS is_test
 LIMIT 1
 """
+
+# 25. Resolve every term a question mentions in one round trip.
+# Resolution runs per question, so one query per term would make ask latency
+# scale with sentence length. UNWIND keeps it to a single call regardless.
+# The match is reported back per term so the caller can tell which word in the
+# question produced which node.
+SEARCH_ENTITIES_BY_TERMS = """
+UNWIND $terms AS term
+MATCH (n)
+WHERE toLower(coalesce(n.name, n.title, '')) CONTAINS toLower(term)
+WITH term, n, toLower(coalesce(n.name, n.title, '')) AS lname
+WITH term, n,
+     CASE
+       WHEN lname = toLower(term) THEN 0
+       WHEN lname STARTS WITH toLower(term) THEN 1
+       ELSE 2
+     END AS quality
+RETURN term AS term,
+       n.id AS id,
+       labels(n)[0] AS label,
+       coalesce(n.name, n.title) AS name,
+       quality AS quality
+ORDER BY quality
+LIMIT $limit
+"""
+
+# 26. Declaration lookup by several candidate names at once, with the file and
+# line attached so an answer can cite where each symbol lives.
+SEARCH_CODE_SYMBOLS_BY_TERMS = """
+UNWIND $terms AS term
+MATCH (s:CodeSymbol)
+WHERE toLower(s.name) CONTAINS toLower(term)
+OPTIONAL MATCH (f:File)-[:DECLARES]->(s)
+RETURN term AS term,
+       s.name AS name,
+       s.id AS id,
+       coalesce(s.kind, '') AS kind,
+       coalesce(s.signature, '') AS signature,
+       coalesce(s.doc_comment, '') AS doc_comment,
+       coalesce(s.documented, false) AS documented,
+       coalesce(s.line, 0) AS line,
+       coalesce(s.visibility, '') AS visibility,
+       coalesce(s.container, '') AS container,
+       coalesce(s.language, '') AS language,
+       coalesce(f.path, '') AS path,
+       coalesce(f.id, '') AS file_id,
+       coalesce(f.is_test, false) AS is_test
+LIMIT $limit
+"""
+
+# 27. The decision a node led to, was made for, or is documented by.
+# A "why" question usually resolves to the incident or the document rather than
+# to the decision itself, so the decision is one hop away in the graph.
+FIND_RELATED_DECISIONS = """
+MATCH (n {id: $node_id})-[r]-(d:Decision)
+RETURN d.id AS id,
+       coalesce(d.title, '') AS title,
+       type(r) AS via
+LIMIT 5
+"""
