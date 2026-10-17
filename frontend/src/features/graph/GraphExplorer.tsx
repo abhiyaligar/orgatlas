@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EvidenceGraph } from "@/features/graph/EvidenceGraph";
+import { EvidenceTrail } from "@/features/graph/EvidenceTrail";
 import { NodeDetailModal } from "@/features/graph/NodeDetailModal";
 
 import type { EvidenceSubgraph, GraphNode } from "@/types";
@@ -14,8 +15,22 @@ export function GraphExplorer({ graph }: GraphExplorerProps) {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
 
+  const focusedName =
+    graph?.nodes.find((node) => node.id === focusedNodeId)?.name ?? null;
+
   return (
     <div className="space-y-4">
+      {graph && graph.paths.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Nodes touched, in order</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <EvidenceTrail paths={graph.paths} focusedNodeName={focusedName} />
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-sm">Evidence graph</CardTitle>
@@ -31,26 +46,6 @@ export function GraphExplorer({ graph }: GraphExplorerProps) {
           />
         </CardContent>
       </Card>
-
-      {graph && graph.paths.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Readable paths</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ol className="space-y-2">
-              {graph.paths.map((path, index) => (
-                <li
-                  key={index}
-                  className="rounded border border-border bg-muted/40 px-3 py-2 font-mono text-xs"
-                >
-                  {path}
-                </li>
-              ))}
-            </ol>
-          </CardContent>
-        </Card>
-      ) : null}
 
       <NodeDetailModal
         node={selectedNode}
