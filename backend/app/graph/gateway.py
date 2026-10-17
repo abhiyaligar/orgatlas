@@ -381,6 +381,27 @@ class GraphGateway:
 
     # --- Decision evidence reads -----------------------------------------------
 
+    def rank_decisions_by_coverage(
+        self, terms: Sequence[str], limit: int = 8
+    ) -> List[Dict[str, Any]]:
+        """Decisions covering the most of a question's terms.
+
+        Returns each candidate with the terms it matched and how many, so a
+        caller can see not only which decision fits best but whether it leaves
+        part of the question unaccounted for.
+        """
+        cleaned = _dedupe_terms(terms)
+        if not cleaned:
+            return []
+        rows = self._execute(
+            queries.GET_DECISIONS_BY_TERM_COVERAGE,
+            {"terms": cleaned, "limit": clamp_limit(limit)},
+        )
+        return [
+            {"id": r[0], "title": r[1], "coverage": r[2], "terms": list(r[3] or [])}
+            for r in rows
+        ]
+
     def get_decision_evidence(self, decision_id: str) -> Optional[Dict[str, Any]]:
         """The decision itself, with its documents and the incidents behind it."""
         rows = self._execute(queries.GET_DECISION_EVIDENCE, {"decision_id": decision_id})

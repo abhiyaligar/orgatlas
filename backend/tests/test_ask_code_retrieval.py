@@ -20,6 +20,10 @@ def make_service(hits=None, symbol=None, symbol_file=None, description=None, his
     # routing and assembly, so it reports no evidence and the path under test
     # is the one that was asked for.
     gateway.get_decision_evidence.return_value = None
+    # Coverage ranking is the primary path for a decision question. These tests
+    # are about routing and about the incident-to-decision hop, so coverage
+    # reports nothing and the hop is what gets exercised.
+    gateway.rank_decisions_by_coverage.return_value = []
     gateway.search_entities_by_terms.return_value = hits or []
     gateway.get_code_symbol.return_value = symbol if symbol is not None else []
     gateway.get_symbol_file.return_value = symbol_file

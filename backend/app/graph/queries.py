@@ -650,3 +650,28 @@ RETURN c.id AS sha,
 ORDER BY c.authored_at DESC
 LIMIT $limit
 """
+
+# 44. Decisions ranked by how much of the question they actually cover.
+#
+# Picking the best textual match is not enough when several decisions mention the
+# same technology: asking about a Kafka-to-Redis migration must not resolve to a
+# decision about adopting Kafka. What separates them is that only one of them
+# mentions Redis at all, so the candidate is ranked by how many of the
+# question's terms appear in its own text.
+GET_DECISIONS_BY_TERM_COVERAGE = """
+UNWIND $terms AS term
+MATCH (d:Decision)
+WHERE toLower(
+        coalesce(d.title, '') + ' ' +
+        coalesce(d.summary, '') + ' ' +
+        coalesce(d.rationale, '') + ' ' +
+        coalesce(d.alternatives, '')
+      ) CONTAINS toLower(term)
+WITH d, collect(DISTINCT term) AS hits
+RETURN d.id AS id,
+       coalesce(d.title, '') AS title,
+       size(hits) AS coverage,
+       hits
+ORDER BY coverage DESC, title
+LIMIT $limit
+"""

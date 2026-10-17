@@ -53,6 +53,7 @@ from app.services.question_resolution import (
     Route,
     candidate_terms,
     choose_route,
+    distinctive_terms,
 )
 
 logger = logging.getLogger(__name__)
@@ -290,6 +291,35 @@ class AskService:
         if intent == INTENT_ONBOARDING:
             return self.retrieve_onboarding(question, context)
         if intent == INTENT_DECISION:
+            # Rank by how much of the question each decision actually covers, not
+            # by which node matched the best single term. Two decisions about the
+            # same technology are separated by the terms only one of them
+            # mentions, and that difference is invisible to a single-term match.
+            terms = candidate_terms(question)
+            ranked = self.gateway.rank_decisions_by_coverage(terms)
+            if ranked:
+                decision_id = ranked[0]["id"]
+                package = self.retrieve_decision(decision_id)
+                if package is not None:
+                    package["question_terms"] = terms
+                    package["coverage"] = ranked[0]["coverage"]
+                    package["other_candidates"] = ranked[1:3]
+                    # Only terms the question *names* are checked. A verb like
+                    # "move" is absent from every decision by construction, and
+                    # flagging it would put a correction on every answer.
+                    covered = {str(term).lower() for term in ranked[0]["terms"]}
+                    named = distinctive_terms(question)
+                    package["unmatched_terms"] = [
+                        term for term in named if term.lower() not in covered
+                    ]
+                    premise = self.decision_evidence.premise_note(
+                        package["unmatched_terms"], package["other_candidates"]
+                    )
+                    if premise:
+                        package["answer"] = "\n\n".join(premise) + "\n\n" + package["answer"]
+                        package["notes"] = premise
+                    return package
+
             decision_id = self._resolve_decision_id(question, entity)
             return self.retrieve_decision(decision_id) if decision_id else None
         if intent in (INTENT_IMPACT, INTENT_OWNERSHIP):
@@ -415,6 +445,7 @@ class AskService:
             package["answer"] = self.decision_evidence.render(evidence)
             package["graph"] = self._decision_subgraph(evidence)
             return package
+
 
         result = self.decisions.trace_decision(decision_id)
         if result is None:

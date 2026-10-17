@@ -297,6 +297,31 @@ class DecisionEvidenceService:
 
         return "\n\n".join(parts)
 
+    @staticmethod
+    def premise_note(unmatched_terms: List[str], other_candidates: List[Any]) -> List[str]:
+        """Flag the part of a question no decision accounts for.
+
+        When a question names something -- a technology, a service -- and no
+        decision mentions it, the honest answer says so before explaining what
+        the graph does hold. Otherwise a reader gets a confident answer about
+        the wrong decision, which reads as a correction nobody asked for.
+        """
+        notes: List[str] = []
+        if unmatched_terms:
+            named = ", ".join(f"`{term}`" for term in unmatched_terms[:6])
+            others = (
+                f" {len(other_candidates)} other decision(s) in the graph also "
+                "mention part of this question."
+                if other_candidates
+                else ""
+            )
+            notes.append(
+                f"The question names {named}, which the decision below does not "
+                f"mention.{others} If you expected this answer to be about them, "
+                "the document stating it has not been ingested."
+            )
+        return notes
+
 
 def _format_value(value: float) -> str:
     """Render a metric value without a spurious decimal.

@@ -327,13 +327,20 @@ def candidate_terms(question: str, max_terms: int = MAX_SEARCH_TERMS) -> List[st
     for match in _QUOTED.finditer(text):
         offer(match.group(1), strong)
 
-    # Consecutive capitalised words are usually one entity name. Offering
-    # "Token Service" as a single term is what stops the one-word match on a
-    # CodeSymbol called Token from outranking the service the user meant.
+    # Capitalised words are usually entity names. Offering "Token Service" as a
+    # single term is what stops the one-word match on a CodeSymbol called Token
+    # from outranking the service the user meant, and offering single ones too
+    # is what lets "Kafka" and "Redis" be checked against a decision's text.
+    # A capitalised question word is dropped by the stopword check.
     for match in _PROPER_NOUN.finditer(text):
-        phrase = match.group(0).strip()
-        if len(phrase.split()) > 1:
-            offer(phrase, strong)
+        span = match.group(0).strip()
+        # A span such as "Why Kafka" glues a question word onto a real name, so
+        # its words are offered individually as well. The stopword check drops
+        # the "Why"; the "Kafka" survives as the named entity.
+        for word in span.split():
+            offer(word, strong)
+        if len(span.split()) > 1:
+            offer(span, strong)
 
     for raw in re.split(r"[\s,()]+", text):
         if any(raw in phrase or phrase in raw for phrase in strong):
@@ -348,7 +355,27 @@ def candidate_terms(question: str, max_terms: int = MAX_SEARCH_TERMS) -> List[st
             offer(raw, weak)
 
     # Strong candidates first, then fill with ordinary words up to the cap.
+    _LAST_STRENGTH["strong"] = strong
     return (strong + weak)[:max_terms]
+
+
+# The strong bucket of the most recent extraction, so callers that care about
+# which terms were *named* rather than merely mentioned can ask without
+# re-parsing. Module-level because candidate_terms is a pure function that must
+# keep returning a plain list.
+_LAST_STRENGTH: Dict[str, List[str]] = {"strong": []}
+
+
+def distinctive_terms(question: str) -> Tuple[str, ...]:
+    """Terms the question names, as opposed to ordinary words it uses.
+
+    "Why did we move Checkout from Kafka to Redis?" names Kafka and Redis and
+    merely uses move, gain and involved. Only the former are worth checking
+    against a decision's text: flagging a verb as uncovered would attach a
+    correction to every answer ever asked.
+    """
+    candidate_terms(question)
+    return tuple(_LAST_STRENGTH["strong"])
 
 
 def score_signals(question: str) -> Dict[str, int]:

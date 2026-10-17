@@ -219,3 +219,31 @@ def test_routing_is_stable_for_the_same_question():
     second = choose_route(question, list(reversed(entities)))
     assert first.intent == second.intent
     assert first.entity.entity_id == second.entity.entity_id
+
+
+def test_named_entities_are_distinct_from_ordinary_words():
+    """Only what a question names is worth checking against a decision's text.
+
+    A verb like "move" is absent from every decision by construction, so
+    flagging it would attach a correction to every answer ever asked.
+    """
+    from app.services.question_resolution import distinctive_terms
+
+    named = distinctive_terms("Why did we move Checkout from Kafka to Redis, who was involved?")
+    assert "Redis" in named
+    assert "Kafka" in named
+    assert "move" not in named
+    assert "involved" not in named
+
+
+def test_a_question_word_is_never_treated_as_a_named_entity():
+    from app.services.question_resolution import distinctive_terms
+
+    named = distinctive_terms("What does the open function in the FalkorDB module do?")
+    assert named == ("FalkorDB",)
+
+
+def test_a_single_capitalised_name_counts_as_named():
+    from app.services.question_resolution import distinctive_terms
+
+    assert "Kafka" in distinctive_terms("Why Kafka?")
