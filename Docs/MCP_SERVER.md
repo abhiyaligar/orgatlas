@@ -77,7 +77,8 @@ A tool whose answer *is* a declaration carries that detail on its entities — s
 - The server never exposes raw Cypher, database credentials, or an arbitrary query executor.
 - Tool inputs are validated and translated to parameterized allowlisted graph retrieval.
 - Outputs are bounded by traversal depth, result count, and response size.
-- Every external client is authenticated and authorized separately from the public demo UI. Until that authorization layer exists, the `/mcp` route mounts **only** when `ENVIRONMENT` is `development`, it is never added to the browser CORS allowlist, and startup fails loudly if `MCP_API_TOKEN` is configured without a verifier.
+- The `/mcp` route is never added to the browser CORS allowlist, so a page cannot reach it in any environment.
+- Outside development the route requires a bearer token from `MCP_API_TOKEN` and **does not mount at all** without one. See [Authentication](#authentication).
 - Tool descriptions must clearly disclose that results are advisory context, not change approval.
 - Access logging records tool name, requested entity identifiers, caller identity, latency, and errors; it excludes secrets and unnecessary source content.
 
@@ -86,7 +87,8 @@ A tool whose answer *is* a declaration carries that detail on its entities — s
 - The server uses `mcp.server.mcpserver.MCPServer` (the `FastMCP` name was removed in the 2.x SDK).
 - `MCPServer.streamable_http_app()` already routes `/mcp` internally, so it is mounted at the host root and requests for `/mcp` fall through to it. Mounting it *under* `/mcp` would produce `/mcp/mcp`.
 - Starlette does not forward lifespan events to mounted applications, so the MCP session-manager lifespan is composed into the host application's lifespan.
-- DNS-rebinding protection stays enabled; only loopback hosts and origins are allowed on the development route.
+- DNS-rebinding protection is always on. In development the loopback hosts and origins are allowed;
+  in production the host comes from `MCP_ALLOWED_HOSTS`, and an empty value refuses every request.
 - All eleven tools declare `readOnlyHint` with `destructiveHint` false, and each description carries the advisory-not-approval disclosure.
 - Declaration data comes from the ingestion sandbox's tree-sitter pass. The MCP surface reads it only; it never parses source or calls a provider.
 
@@ -96,9 +98,15 @@ A tool whose answer *is* a declaration carries that detail on its entities — s
 | --- | --- | --- |
 | 11, all read-only | 4 templates | 3 |
 
-Verified over real JSON-RPC: `initialize`, `tools/list`, `prompts/list`, and `resources/templates/list` all answer, and the browser API continues to serve alongside the mounted MCP app.
+Verified over real JSON-RPC: `initialize`, `tools/list`, `prompts/list`, and
+`resources/templates/list` all answer, and the browser API continues to serve alongside the mounted
+MCP app. Authentication is covered end to end in `backend/tests/test_mcp_auth.py`, which asserts
+that every method is refused without a token.
 
 ## Deployment boundary
+
+The route is mounted on the API service, at the application root rather than under a
+prefix, because `streamable_http_app()` already routes `/mcp` internally.
 
 Deploy the MCP server as a separately authenticated service on Render, or isolate it behind a dedicated MCP route with equivalent controls. It shares the internal graph-retrieval library with the FastAPI product API but has an independent authorization boundary. The browser never calls the MCP endpoint.
 
@@ -166,7 +174,9 @@ user's own filesystem and process permissions and is not reachable over a socket
 
 ## Deferred work
 
-- Real authentication and authorization for MCP clients.
+- Per-client credentials for MCP, rather than one shared bearer secret. A
+  shared token is right for a single self-hosted server with one known client;
+  several independent clients need per-client credentials, expiry, and revocation.
 - Per-organization tenancy and enterprise identity integration.
 - Live repository/issue-tracker synchronization.
 - Repository-diff-aware impact analysis.

@@ -2,6 +2,8 @@
 
 This directory is the source of truth for product and technical decisions. Implementation follows these documents rather than preceding them.
 
+What is currently built is described by the code and its tests rather than by a separate status document, because a status file drifts the moment anything ships. Read `backend/tests/` for what is actually covered.
+
 | Document | Purpose | Update when |
 | --- | --- | --- |
 | [PRD](PRD.md) | User problem, scope, success criteria, and requirements | Product scope changes |
@@ -17,7 +19,6 @@ This directory is the source of truth for product and technical decisions. Imple
 | [Deployment](DEPLOYMENT.md) | Render/FalkorDB Cloud environments and release checklist | Infrastructure or environment configuration changes |
 | [Demo plan](DEMO_PLAN.md) | Judge-facing story, seed data, and fallback plan | The demo scenario changes |
 | [Decisions](DECISIONS.md) | Architecture Decision Records (ADRs) | A material choice is made or reversed |
-| [Implementation status](STATUS.md) | What is built, verified numbers, and open work in priority order | A milestone lands or an open item closes |
 
 ## Change protocol
 

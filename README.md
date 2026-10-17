@@ -31,7 +31,6 @@ Start with the [documentation index](Docs/README.md). The key implementation ref
 - [Frontend architecture](Docs/FRONTEND_ARCHITECTURE.md)
 - [Backend architecture](Docs/BACKEND_ARCHITECTURE.md)
 - [MCP server design](Docs/MCP_SERVER.md)
-- [Implementation status](Docs/STATUS.md) — what is built, and what remains
 
 ## Scope guardrails
 

@@ -72,7 +72,7 @@ A scan runs in an isolated E2B sandbox that clones and parses only. The sandbox 
 | `matches[].documented` | False when no doc comment exists. Never generated |
 | `matches[].line` | One-based line in the scanned revision |
 | `matches[].container` | Enclosing type, trait-qualified for `impl Trait for Type` |
-| `matches[].visibility` | `pub`, `pub(crate)`, `public`, or `trait` for members of a public trait |
+| `matches[].visibility` | Stored verbatim from the grammar, so values differ by language. The one ingested Rust repository produces `pub`, `pub(crate)`, `pub(super)`, and `trait` for members of a public trait. Filter on a set, not one literal |
 | `matches[].changes_since_docs` | Commits touching the file after the scan, so a line number is not presented as current when it has moved |
 | `guidance` | What to do next, including a warning when nothing is documented |
 
@@ -90,11 +90,11 @@ An ambiguous name returns every match with its container rather than silently ch
 
 | Field | Description |
 | --- | --- |
-| `answer` | Grounded natural-language response |
+| `answer` | Grounded natural-language response. For a decision, the whole narrative: rationale, supporting documents, who proposed or approved or objected, Slack excerpts, stated metrics with their baseline, implementing commits, and what the migration moved between |
 | `evidence_summary` | Human-readable explanation of why the answer is supported |
 | `citations` | Source identifiers, titles, types, and links/excerpts |
 | `graph` | Bounded visualization-ready nodes and edges |
-| `confidence` | Supported, partial, or insufficient evidence |
+| `confidence` | Supported, partial, or insufficient. An answer whose question names something the chosen decision does not mention is flagged before the answer, rather than returned confidently about the wrong decision |
 | `suggested_questions` | Relevant next questions |
 
 ## Document ingestion
@@ -109,6 +109,15 @@ An ambiguous name returns every match with its container rather than silently ch
 
 Upload is multipart with `file`, and optional `title`, `author`, `extract`.
 `extract=false` parses and links without calling the model.
+
+| Condition | Status | Client outcome |
+| --- | --- | --- |
+| Unsupported file type | `415` | Names the supported types. Rejected before a job is created |
+| Empty file | `400` | Nothing is ingested |
+| Over 20 MB | `413` | Nothing is ingested |
+
+The type is checked **before** a job row exists. Discovering it afterwards answered `200` with
+status `failed`, so a client reading only the status code saw success for a rejected file.
 
 See [DOCUMENTS.md](DOCUMENTS.md) for the pipeline and the verification rules.
 
@@ -127,9 +136,31 @@ polls `GET /repos/ingest/{job_id}` until `status` is terminal.
 | `done` | Finished; the three counts below are final | yes |
 | `failed` | Stopped; `error_message` says why | yes |
 
-`commits_ingested`, `files_indexed`, and `identities_resolved` increment as work completes, so
+`commits_ingested`, `files_indexed`, and `identities_resolved` increment as work complete, so
 they are meaningful mid-flight. `stage_detail` carries the scanner's own message and may be
 updated without a status change.
+
+### Repository and document jobs are not the same shape
+
+A repository scan has seven statuses because its stages are long. A document job
+has fewer, and the detail lives in the message:
+
+| `status` | Meaning | Terminal |
+| --- | --- | --- |
+| `queued` | Accepted, not started | no |
+| `parsing` | Reading the file, extracting, linking, writing | no |
+| `done` | Finished; the counts below are final | yes |
+| `failed` | Stopped; `error_message` says why | yes |
+
+Within `parsing`, `stage_detail` moves through `parsing ... as <kind>`,
+`extracting ...`, `storing ...`, `writing ...`, and `complete: ...`. A client that
+wants per-stage progress reads the message; one that wants to poll reads the
+status.
+
+Document counts are `documents_ingested`, `decisions_extracted`,
+`metrics_extracted`, `entities_linked`, and `model_calls`. They are counted from
+what the graph accepted, not from what the model proposed, so a run reports the
+numbers a reader would actually find.
 
 ## Error strategy
 
@@ -140,6 +171,10 @@ updated without a status change.
 | File, symbol, or entity absent | `404` | Names the identifier and what to do about it |
 | FalkorDB unreachable | `500` | Clear temporary-error state; never a fabricated answer |
 | Nebius unavailable | `200` | Retrieved facts and sources without a generated narrative |
+| Unsupported document type | `415` | Names the supported types; no job created |
+| Document too large or empty | `413` / `400` | Nothing ingested |
+| No MCP token in production | `404` | The `/mcp` route does not mount at all |
+| Wrong or missing MCP token | `401` | Indistinguishable, so the difference cannot be probed |
 
 ## Contract rules
 
