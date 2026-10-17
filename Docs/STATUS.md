@@ -63,6 +63,13 @@ cannot be recomputed without re-running the ingest. Until that happens, a live
 `describe_file` still returns a clipped description. This is the one item on this
 list that a re-ingest closes outright.
 
+### 0c. Two decisions about the same technology are not disambiguated
+Asking about a Kafka-to-Redis migration while a seed decision about adopting Kafka also
+mentions Kafka resolves to whichever candidate scores higher, and the seed one won in
+practice. The answer still refused to overstate -- it said the premise was unsupported and
+named what the evidence did show -- but it answered about the wrong decision. Resolving
+across several same-topic decisions, rather than picking the best-scoring one, is the fix.
+
 ### 1. MCP authentication is not implemented
 The `/mcp` route mounts only when `ENVIRONMENT` is `development`, is never added to the browser CORS allowlist, and startup fails loudly if `MCP_API_TOKEN` is set without a verifier. That is safe, but it means the surface cannot yet be exposed to a real remote agent. This is the only item that blocks a deployed coding-agent demo.
 
