@@ -22,6 +22,8 @@ Update this whenever a milestone lands or an item below is closed.
 | `/ask` synthesis | LLM-first over `zai-org/GLM-5.3-Flash`, grounded citations, deterministic fallback; verified live |
 | `/ask` routing | Graph-driven: terms resolve to real nodes, and the node's label picks the intent |
 | Slack bot | Answers on mention in allowlisted channels, from the same `AskService.answer()` the API uses. 21 tests |
+| Document ingest | PDF / markdown / text / CSV upload; 31 tests. Extraction verified against the source |
+| Decision evidence | Rationale, people, Slack quotes, metrics, commits, migration, and stated gaps |
 | Descriptions | Complete to 5,000 characters, cut only at a sentence boundary and only when marked |
 
 ## Delivered, in order
@@ -35,6 +37,8 @@ Update this whenever a milestone lands or an item below is closed.
 - A model fallback that runs only where the authors wrote nothing usable, with full provenance.
 - Read-only MCP context server with tools, resources, and prompts.
 - LLM-first `/ask`: the model synthesizes an answer from retrieved packages and must cite its sources, with a deterministic graph-fact fallback when the provider fails or the answer cites nothing it was given.
+- Document ingestion: upload a PDF, markdown or CSV, extract decisions, people, quotes and metrics with
+  every claim checked against the sentence it came from, link them into the graph, and answer from all of it.
 - A Slack bot so a developer or an agent can ask in the channel where the question already arises, and get
   a cited answer instead of a guess. Socket Mode, so it runs from a laptop with no public URL.
 - `/ask` answering questions about the ingested repository, not only the fictional organisation. Terms
@@ -45,7 +49,13 @@ Update this whenever a milestone lands or an item below is closed.
 
 ## Open work, in priority order
 
-### 0. Stored descriptions still hold the old 400-character summaries
+### 0. Document extraction is slow and expensive
+One document took 188s and 11,531 completion tokens, nearly all of it reasoning, because the
+configured model is a reasoning model run over prose. This is workable for a demo and wrong for a
+bulk load. `extract=false` skips it. A non-reasoning model for extraction would change both numbers
+substantially and is the obvious next step.
+
+### 0b. Stored descriptions still hold the old 400-character summaries
 The extraction limit was raised to 5,000 characters and now cuts at a sentence
 boundary, but the graph still holds summaries produced under the old limit. The
 ingest cache keeps the finished summaries rather than the source text, so they

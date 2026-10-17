@@ -96,6 +96,21 @@ An ambiguous name returns every match with its container rather than silently ch
 | `confidence` | Supported, partial, or insufficient evidence |
 | `suggested_questions` | Relevant next questions |
 
+## Document ingestion
+
+| Method | Path | Purpose | Returns |
+| --- | --- | --- | --- |
+| `POST` | `/docs` | Upload and ingest a PDF, `.md`, `.txt` or `.csv` | Job status and counts |
+| `GET` | `/docs/ingest/{job_id}` | Poll a document job | Stage, counts, error |
+| `GET` | `/docs` | List ingested documents | Title, kind, hash, summary |
+| `POST` | `/docs/slack/ingest` | Ingest Slack history | Messages, attributed, linked |
+| `GET` | `/docs/decisions/{decision_id}` | One decision with all evidence | Documents, people, quotes, metrics, commits, notes |
+
+Upload is multipart with `file`, and optional `title`, `author`, `extract`.
+`extract=false` parses and links without calling the model.
+
+See [DOCUMENTS.md](DOCUMENTS.md) for the pipeline and the verification rules.
+
 ## Ingest job lifecycle
 
 `POST /repos/ingest` returns immediately and the scan runs in the background. A client
