@@ -34,6 +34,7 @@ A scan runs in an isolated E2B sandbox that clones and parses only. The sandbox 
 | `GET` | `/repos/{repository_id}/brief` | Orientation brief for a repository | Hotspots, experienced contributors, dependent repositories, guidance |
 | `GET` | `/repos/{repository_id}/churn` | Files that change most | Path, change count, test flag |
 | `GET` | `/repos/{repository_id}/commits` | Recent commits in a repository, or under a `path_prefix` | Commit summaries |
+| `GET` | `/repos/commit/{commit_id}` | One ingested commit with its files and provenance | Message, author, date, files, pull request |
 | `GET` | `/repos/file/timeline` | Who changed a file and when | History, contributors, citations, subgraph |
 | `GET` | `/repos/file/coupling` | Files that change alongside this one | Co-changing paths and advice |
 

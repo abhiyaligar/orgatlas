@@ -41,17 +41,17 @@ This reduces avoidable irrelevant changes and accidental breakage. It does **not
 
 | Tool | Inputs | Returns |
 | --- | --- | --- |
-| Get architecture context | Service, repository, or feature identifier | Relevant systems, repos, owners, documents, sources, and bounded graph |
-| Assess change impact | Target service/repository plus change summary | Direct/multi-hop dependencies, affected owners, prior incidents, risks, and evidence |
-| Trace a technical decision | Decision, technology, or service | Rationale, alternatives, decision-makers, affected systems, and sources |
-| Find owner and expertise | Service/repository/technology | Accountable team, maintainers, experienced contributors, and sources |
-| Get onboarding context | Engineering team or role | Systems, learning path, people, reading, incidents, and sources |
-| Search architecture evidence | Narrow text query and optional entity type | Ranked source-linked graph entities; not arbitrary database access |
-| Trace change origin | Ingested file node id (`repo_<name>::<path>`) | Change history, linked pull request and decision, coupled files, and provenance gaps |
-| Assess file risk | Path or prefix plus repository | Tracked files, churn hotspots, contributors, and test-churn signals |
-| Get repository dependency impact | Ingested repository id | Declared dependent repositories and the limits of that evidence |
-| Describe a file | Ingested file node id (`repo_<name>::<path>`) | What the file's authors documented, its public symbols, whether that description is current, and whether it was authored or generated |
-| Describe a declaration | Symbol name, optional file id | Doc comment, signature, kind, container, file, line, and whether the file has drifted since the scan |
+| `get_architecture_context`<br>Get architecture context | Service, repository, or feature identifier | Relevant systems, repos, owners, documents, sources, and bounded graph |
+| `assess_change_impact`<br>Assess change impact | Target service/repository plus change summary | Direct/multi-hop dependencies, affected owners, prior incidents, risks, and evidence |
+| `trace_technical_decision`<br>Trace a technical decision | Decision, technology, or service | Rationale, alternatives, decision-makers, affected systems, and sources |
+| `find_owner_and_expertise`<br>Find owner and expertise | Service/repository/technology | Accountable team, maintainers, experienced contributors, and sources |
+| `get_onboarding_context`<br>Get onboarding context | Engineering team or role | Systems, learning path, people, reading, incidents, and sources |
+| `search_architecture_evidence`<br>Search architecture evidence | Narrow text query and optional entity type | Ranked source-linked graph entities; not arbitrary database access |
+| `trace_change_origin`<br>Trace change origin | Ingested file node id (`repo_<name>::<path>`) | Change history, linked pull request and decision, coupled files, and provenance gaps |
+| `assess_file_risk`<br>Assess file risk | Path or prefix plus repository | Tracked files, churn hotspots, contributors, and test-churn signals |
+| `get_repo_dependency_impact`<br>Get repository dependency impact | Ingested repository id | Declared dependent repositories and the limits of that evidence |
+| `describe_file`<br>Describe a file | Ingested file node id (`repo_<name>::<path>`) | What the file's authors documented, its public symbols, whether that description is current, and whether it was authored or generated |
+| `describe_symbol`<br>Describe a declaration | Symbol name, optional file id | Doc comment, signature, kind, container, file, line, and whether the file has drifted since the scan |
 
 The final three tools are the repository-ingest work added in Track A: two
 forensics tools and the declaration tools. They use the same response contract

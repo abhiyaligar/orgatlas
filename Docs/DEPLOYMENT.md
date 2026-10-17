@@ -47,6 +47,40 @@ Two consequences worth knowing:
 - `FLUSHDB` is not available to the configured FalkorDB Cloud user. A full clean drops the graph with the client's graph-level delete and recreates it.
 - A scan is a one-shot on request. The payload cache is written for inspection but is not read back, so a re-ingest always pays for a fresh sandbox run.
 
+## Environment variable reference
+
+Every setting, whether or not it is currently required. Secrets are marked.
+
+| Variable | Purpose |
+| --- | --- |
+| `API_V1_PREFIX` | Prefix for REST routes, `/api` by default. |
+| `ASK_SYNTHESIS_ENABLED` | False answers from graph facts only, with no provider call. |
+| `ASK_SYNTHESIS_TIMEOUT_SECONDS` | Per-answer synthesis timeout. |
+| `CORS_ORIGINS` | Browser origins allowed. MCP is never included. |
+| `DATABASE_URL` | Relational store for jobs, documents, extractions, Slack messages. |
+| `DEBUG` | FastAPI debug flag. |
+| `E2B_API_KEY` | Repository ingestion sandboxes. Secret. |
+| `E2B_INGEST_TEMPLATE` | Built sandbox template id. |
+| `E2B_SANDBOX_TIMEOUT` | Sandbox lifetime in seconds. |
+| `ENVIRONMENT` | development | production. In production the MCP route requires a token. |
+| `FALKORDB_GRAPH_NAME` | Graph name. The development graph is separate from production. |
+| `FALKORDB_HOST` | Graph host. |
+| `FALKORDB_PASSWORD` | Graph password. Secret. |
+| `FALKORDB_PORT` | Graph port. |
+| `FALKORDB_USERNAME` | Graph username. |
+| `INGEST_CACHE_DIR` | Where scan payloads are written for inspection. |
+| `INGEST_COMMIT_DEPTH` | How many commits of history to walk. |
+| `MCP_ALLOWED_HOSTS` | Host headers MCP answers to. Required in production. |
+| `MCP_API_TOKEN` | Bearer token for /mcp. Comma-separated to allow rotation. Secret. |
+| `NEBIUS_API_BASE_URL` | Provider base URL. |
+| `NEBIUS_API_KEY` | Answer synthesis and file-description fallback. Secret. |
+| `NEBIUS_EXTRACTION_MODEL_NAME` | Model used for document extraction. See DOCUMENTS.md. |
+| `NEBIUS_MODEL_NAME` | Model used for answers. |
+| `SLACK_ALLOWED_CHANNELS` | Channels the bot answers in. Empty means silent everywhere. |
+| `SLACK_APP_TOKEN` | Socket Mode app token. Secret. |
+| `SLACK_BOT_TOKEN` | Slack bot token for the answering bot. Secret. |
+| `SLACK_MAX_QUESTION_CHARS` | Longer questions are truncated and marked. |
+
 ## Release checklist
 
 1. Confirm the schema and seed data produce every required demo path.
