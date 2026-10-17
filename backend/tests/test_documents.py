@@ -406,3 +406,44 @@ def test_counts_report_what_reached_the_graph_not_what_the_model_proposed():
     assert summary["decisions"] == 0, "a decision the graph rejected is not counted"
     assert summary["metrics"] == 0
     assert summary["people"] == 0
+
+# --- upload endpoint --------------------------------------------------------
+
+
+def _client():
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+
+    return TestClient(create_app(), raise_server_exceptions=False)
+
+
+def test_an_unsupported_upload_is_refused_before_a_job_exists():
+    """Status code must not report success for a rejected file.
+
+    The type was checked after a job was created, so an unsupported upload
+    answered 200 with status "failed" -- a client reading only the status code
+    saw success for a file that was never ingested.
+    """
+    response = _client().post(
+        "/api/docs", files={"file": ("design.docx", b"binary", "application/octet-stream")}
+    )
+    assert response.status_code == 415
+    assert "supported" in response.json()["detail"]
+
+
+def test_an_empty_upload_is_a_bad_request():
+    response = _client().post(
+        "/api/docs", files={"file": ("empty.pdf", b"", "application/octet-stream")}
+    )
+    assert response.status_code == 400
+
+
+def test_a_supported_upload_records_its_kind():
+    response = _client().post(
+        "/api/docs", files={"file": ("notes.md", b"# T\n\nBody.\n", "text/markdown")},
+        data={"extract": "false"},
+    )
+    assert response.status_code == 200
+    assert response.json()["kind"] == "markdown"
+    assert response.json()["status"] == "done"

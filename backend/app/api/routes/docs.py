@@ -27,7 +27,7 @@ from app.api.schemas import (
 from app.core.dependencies import SessionLocal
 from app.db.models import Document, DocumentIngestJob
 from app.ingestion.document_ingest import DocumentIngestor
-from app.ingestion.doc_parsers import DocumentParseError
+from app.ingestion.doc_parsers import DocumentParseError, kind_for_filename
 from app.services.decision_evidence_service import DecisionEvidenceService
 
 router = APIRouter(prefix="/docs", tags=["Documents"])
@@ -142,9 +142,18 @@ async def upload_document(
             detail=f"file exceeds {MAX_UPLOAD_BYTES} bytes",
         )
 
+    # The file type is checked before a job exists. Discovering it afterwards
+    # made an unsupported upload answer 200 with status "failed", so a client
+    # reading only the status code saw success for a rejected file.
+    filename = file.filename or "document"
+    try:
+        kind = kind_for_filename(filename)
+    except DocumentParseError as exc:
+        raise HTTPException(status_code=415, detail=str(exc)) from exc
+
     session: Session = SessionLocal()
     try:
-        job = DocumentIngestJob(filename=file.filename or "document", status="queued")
+        job = DocumentIngestJob(filename=filename, kind=kind, status="queued")
         session.add(job)
         session.commit()
         job_id = job.id
@@ -154,7 +163,7 @@ async def upload_document(
     import anyio
 
     await anyio.to_thread.run_sync(
-        lambda: _run_ingest(job_id, data, file.filename or "document", title, author, extract)
+        lambda: _run_ingest(job_id, data, filename, title, author, extract)
     )
 
     session = SessionLocal()
