@@ -154,12 +154,39 @@ model and it reasons over prose before answering.
 
 | Measure | Observed |
 | --- | --- |
-| Time, one document | ~190s |
-| Completion tokens | ~11,500, nearly all reasoning |
-| Visible output | ~3,500 characters |
+| Time, one document | 80-190s, noisy across runs |
+| Completion tokens | ~7,800, most of it spent reasoning |
+| Visible output | ~1,000 tokens of JSON |
 
 `extract=false` skips it. A document uploaded that way is still parsed, stored
-and linked — it simply contributes no extracted decisions or metrics.
+and linked; it simply contributes no extracted decisions or metrics.
+
+### Choosing the extraction model
+
+`NEBIUS_EXTRACTION_MODEL_NAME` defaults to the same model answers use. Extraction
+was measured against `google/gemma-3-27b-it` on one migration document:
+
+| Model | Completion tokens | Wall clock | Extracted |
+| --- | --- | --- | --- |
+| `zai-org/GLM-5.3-Flash` (default) | 7,764 | 80s | 2 decisions, 2 people, 3 metrics |
+| `google/gemma-3-27b-it` | 4,493 | 115s | 1 decision, 2 people, 3 metrics |
+
+The cheaper model used **42% fewer tokens** but was not faster in wall-clock, and
+the extractions differed by one decision. That saving was not judged worth
+changing the default over, so the setting exists for deployments that disagree.
+
+One model tested, `deepseek-ai/DeepSeek-V4.1-Flash`, reasons heavily despite the
+name: it consumed 16,384 tokens and returned nothing, exactly as the default
+model does on a large enough document. A reasoning model on this task will
+sometimes exhaust its budget and return empty output. The extractor grows its
+token budget and retries when that happens, and records the failure rather than
+storing an empty extraction as if it were a finding.
+
+To switch:
+
+```bash
+NEBIUS_EXTRACTION_MODEL_NAME=google/gemma-3-27b-it
+```
 
 ## Storage
 

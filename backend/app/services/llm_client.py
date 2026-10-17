@@ -183,8 +183,13 @@ def _chat(
     timeout: int,
     max_retries: int,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    model: Optional[str] = None,
 ) -> Any:
-    """One chat completion, retried on transient provider errors."""
+    """One chat completion, retried on transient provider errors.
+
+    ``model`` defaults to the configured answer model. Extraction passes its own,
+    because a reasoning model is the wrong tool for reading a document into JSON.
+    """
     from openai import OpenAI
 
     try:

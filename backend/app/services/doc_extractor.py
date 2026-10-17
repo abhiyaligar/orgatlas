@@ -31,13 +31,16 @@ logger = logging.getLogger(__name__)
 
 PROMPT_VERSION = "doc-extract-v1"
 
-# Extraction returns several structured sections, so it needs more room than a
-# one-paragraph file description. Even so, a reasoning model may need more than
-# this, which is why the client grows the budget rather than failing.
-MAX_TOKENS = 8192
+# Extraction emits a JSON object of a few kilobytes. A non-reasoning model
+# produces that in well under 4,000 tokens, and it is the configured default for
+# extraction precisely because a reasoning model spends an order of magnitude
+# more thinking first.
+MAX_TOKENS = 4096
 MAX_TOKEN_CEILING = 32768
 
-MODEL_NAME = "zai-org/GLM-5.3-Flash"
+# Overridden at construction from settings; kept as a fallback for tests and for
+# a deployment that sets no extraction model.
+MODEL_NAME = "deepseek-ai/DeepSeek-V4.1-Flash"
 
 
 class _ProviderClient:
@@ -50,10 +53,11 @@ class _ProviderClient:
     not help -- the budget itself has to grow, and it does so here.
     """
 
-    def __init__(self, timeout: int, max_retries: int, max_tokens: int) -> None:
+    def __init__(self, timeout: int, max_retries: int, max_tokens: int, model: str) -> None:
         self.timeout = timeout
         self.max_retries = max_retries
         self.max_tokens = max_tokens
+        self.model = model
 
     def complete(self, messages: List[Dict[str, str]]) -> Any:
         from app.services.llm_client import _chat
@@ -67,6 +71,7 @@ class _ProviderClient:
                 timeout=self.timeout,
                 max_retries=self.max_retries,
                 max_tokens=budget,
+                model=self.model,
             )
             last_completion = completion
 
@@ -354,10 +359,19 @@ class DocumentExtractor:
         model: Optional[str] = None,
         timeout: int = 120,
         max_retries: int = 2,
-        max_tokens: int = 4096,
+        max_tokens: int = MAX_TOKENS,
     ) -> None:
+        from app.core.config import settings
+
         self._client = client
-        self.model = model or MODEL_NAME
+        # Falls back to the answer model so a deployment that sets no extraction
+        # model still works, at the reasoning model's cost.
+        self.model = (
+            model
+            or getattr(settings, "NEBIUS_EXTRACTION_MODEL_NAME", None)
+            or settings.NEBIUS_MODEL_NAME
+            or MODEL_NAME
+        )
         self.timeout = timeout
         self.max_retries = max_retries
         self.max_tokens = max_tokens
@@ -368,6 +382,7 @@ class DocumentExtractor:
                 timeout=self.timeout,
                 max_retries=self.max_retries,
                 max_tokens=self.max_tokens,
+                model=self.model,
             )
         return self._client
 

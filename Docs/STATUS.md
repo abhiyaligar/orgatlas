@@ -63,12 +63,18 @@ cannot be recomputed without re-running the ingest. Until that happens, a live
 `describe_file` still returns a clipped description. This is the one item on this
 list that a re-ingest closes outright.
 
+### 0d. Extraction cost is unresolved, not fixed
+Extraction has its own model setting now. A cheaper non-reasoning model was measured
+and used 42% fewer tokens with no wall-clock win, which was not judged enough to change
+the default. The cost stands at roughly 8,000 completion tokens per document, and
+`extract=false` is the only lever that avoids it.
+
 ### 0c. Two decisions about the same technology are not disambiguated
-Asking about a Kafka-to-Redis migration while a seed decision about adopting Kafka also
-mentions Kafka resolves to whichever candidate scores higher, and the seed one won in
-practice. The answer still refused to overstate -- it said the premise was unsupported and
-named what the evidence did show -- but it answered about the wrong decision. Resolving
-across several same-topic decisions, rather than picking the best-scoring one, is the fix.
+Partly fixed: candidates are now ranked by how many of the question's terms appear in
+each decision's own text, and the answer states when the question names something the
+chosen decision does not mention. What remains is that a decision mentioning Kafka four
+times and Redis once still outranks a decision that is entirely about the move, because
+coverage counts terms rather than weighting the question's focus.
 
 ### 1. MCP authentication is not implemented
 The `/mcp` route mounts only when `ENVIRONMENT` is `development`, is never added to the browser CORS allowlist, and startup fails loudly if `MCP_API_TOKEN` is set without a verifier. That is safe, but it means the surface cannot yet be exposed to a real remote agent. This is the only item that blocks a deployed coding-agent demo.

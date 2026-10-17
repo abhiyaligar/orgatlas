@@ -33,6 +33,18 @@ class Settings(BaseSettings):
 # Answer synthesis. On by default so /ask is model-written; set false to
     # answer from retrieved graph facts only. Tests disable it so the suite
     # never depends on a reachable or billable provider.
+    # Extraction gets its own model so it can be changed without touching answer
+    # synthesis. It defaults to the same Flash model answers use.
+    #
+    # Measured on one migration document, extraction is the expensive part of
+    # ingestion -- around 8,000 completion tokens, most of it spent reasoning
+    # before writing ~1,000 tokens of JSON. A cheaper non-reasoning model was
+    # tried: google/gemma-3-27b-it produced the same extraction in 4,493 tokens
+    # (42% less) but no faster in wall-clock, and the difference in what it
+    # extracted was small enough that the saving was not judged worth changing
+    # the default over. Point this at gemma, or anything else, to trade quality
+    # for tokens.
+    NEBIUS_EXTRACTION_MODEL_NAME: Optional[str] = "zai-org/GLM-5.3-Flash"
     ASK_SYNTHESIS_ENABLED: bool = True
     # Generous because a reasoning model on a multi-source evidence package
     # exceeds shorter limits and returns an empty completion.
