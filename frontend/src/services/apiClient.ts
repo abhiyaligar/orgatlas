@@ -1,12 +1,22 @@
 import type {
   AskQuestionRequest,
   AskQuestionResponse,
+  ChurnResponse,
   Citation,
+  CommitListResponse,
+  CouplingResponse,
   DemoPrompt,
   EntityDetailResponse,
+  FileDescriptionResponse,
+  FileTimelineResponse,
   GraphNode,
   HealthResponse,
+  IngestJobResponse,
+  IngestRequest,
+  InvestigationBriefResponse,
   OnboardingMapResponse,
+  RepositorySummary,
+  SymbolDescriptionResponse,
 } from "@/types";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/+$/, "");
@@ -90,6 +100,80 @@ export function askQuestion(body: AskQuestionRequest): Promise<AskQuestionRespon
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+/* --- Repository ingestion and change forensics ---------------------------- */
+
+export function fetchRepositories(): Promise<RepositorySummary[]> {
+  return request<RepositorySummary[]>("/repos");
+}
+
+export function fetchRepoBrief(repositoryId: string): Promise<InvestigationBriefResponse> {
+  return request<InvestigationBriefResponse>(
+    `/repos/${encodeURIComponent(repositoryId)}/brief`,
+  );
+}
+
+export function fetchRepoChurn(
+  repositoryId: string,
+  pathPrefix = "",
+  limit = 25,
+): Promise<ChurnResponse> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (pathPrefix) query.set("path_prefix", pathPrefix);
+  return request<ChurnResponse>(
+    `/repos/${encodeURIComponent(repositoryId)}/churn?${query.toString()}`,
+  );
+}
+
+export function fetchRepoCommits(
+  repositoryId: string,
+  limit = 25,
+): Promise<CommitListResponse> {
+  return request<CommitListResponse>(
+    `/repos/${encodeURIComponent(repositoryId)}/commits?limit=${limit}`,
+  );
+}
+
+export function fetchFileTimeline(fileId: string, limit = 25): Promise<FileTimelineResponse> {
+  return request<FileTimelineResponse>(
+    `/repos/file/timeline?file_id=${encodeURIComponent(fileId)}&limit=${limit}`,
+  );
+}
+
+export function fetchFileCoupling(fileId: string, limit = 15): Promise<CouplingResponse> {
+  return request<CouplingResponse>(
+    `/repos/file/coupling?file_id=${encodeURIComponent(fileId)}&limit=${limit}`,
+  );
+}
+
+export function fetchFileDescription(fileId: string): Promise<FileDescriptionResponse> {
+  return request<FileDescriptionResponse>(
+    `/repos/file/describe?file_id=${encodeURIComponent(fileId)}`,
+  );
+}
+
+export function fetchSymbols(
+  name: string,
+  fileId = "",
+  limit = 10,
+): Promise<SymbolDescriptionResponse> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (fileId) query.set("file_id", fileId);
+  return request<SymbolDescriptionResponse>(
+    `/repos/file/symbols/${encodeURIComponent(name)}?${query.toString()}`,
+  );
+}
+
+export function startIngest(body: IngestRequest): Promise<IngestJobResponse> {
+  return request<IngestJobResponse>("/repos/ingest", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function fetchIngestJob(jobId: number): Promise<IngestJobResponse> {
+  return request<IngestJobResponse>(`/repos/ingest/${jobId}`);
 }
 
 export function nodeLabel(node: GraphNode): string {

@@ -6,6 +6,7 @@ import { DemoModeBanner } from "@/components/layout/DemoModeBanner";
 import { AskWorkspace } from "@/features/ask/AskWorkspace";
 import { GraphExplorer } from "@/features/graph/GraphExplorer";
 import { OnboardingView } from "@/features/onboarding/OnboardingView";
+import { RepositoriesView } from "@/features/repos/RepositoriesView";
 import type { AppView, EvidenceSubgraph } from "@/types";
 
 const TEAMS = [
@@ -67,7 +68,11 @@ export function App() {
           </div>
         ) : null}
 
-        {activeView === "graph" ? <GraphExplorer graph={sharedGraph} /> : null}
+        {activeView === "repositories" ? (
+            <RepositoriesView onShowGraph={() => setActiveView("graph")} />
+          ) : null}
+
+          {activeView === "graph" ? <GraphExplorer graph={sharedGraph} /> : null}
       </div>
     </AppShell>
   );
