@@ -15,6 +15,7 @@ import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
@@ -157,6 +158,14 @@ async def upload_document(
         session.add(job)
         session.commit()
         job_id = job.id
+    except SQLAlchemyError as exc:
+        # An unguarded commit turns a transient store problem into an opaque 500
+        # that looks like a server fault rather than "the store was busy".
+        session.rollback()
+        logger.exception("could not record a job for %s", filename)
+        raise HTTPException(
+            status_code=503, detail="the document store is busy, retry shortly"
+        ) from exc
     finally:
         session.close()
 

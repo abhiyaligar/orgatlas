@@ -1,5 +1,24 @@
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from datetime import date, datetime
+from typing import Annotated, Any, Dict, List, Optional
+from pydantic import BaseModel, BeforeValidator, Field
+
+
+def _as_iso(value: Any) -> Any:
+    """Render a timestamp column as an ISO 8601 string.
+
+    A datetime column hands back a ``datetime`` from Postgres but a plain string
+    from some SQLite files, so a field declared ``str`` either validates or blows
+    up depending on where the row was written. Converting here keeps the wire
+    format identical in both stores, which is what the API contract promises.
+    """
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return value
+
+
+# A timestamp on the way out: a real datetime becomes an ISO string, and a value
+# that is already a string is passed through untouched.
+IsoTimestamp = Annotated[Optional[str], BeforeValidator(_as_iso)]
 
 
 class HealthResponse(BaseModel):
@@ -135,8 +154,8 @@ class IngestJobResponse(BaseModel):
     files_indexed: int = 0
     identities_resolved: int = 0
     error_message: Optional[str] = None
-    created_at: Optional[str] = None
-    completed_at: Optional[str] = None
+    created_at: IsoTimestamp = None
+    completed_at: IsoTimestamp = None
 
 
 class RepositorySummary(BaseModel):
@@ -310,8 +329,8 @@ class DocumentIngestStatus(BaseModel):
     metrics_extracted: int = 0
     model_calls: int = 0
     error_message: Optional[str] = None
-    created_at: Optional[str] = None
-    completed_at: Optional[str] = None
+    created_at: IsoTimestamp = None
+    completed_at: IsoTimestamp = None
 
 
 class MetricResponse(BaseModel):

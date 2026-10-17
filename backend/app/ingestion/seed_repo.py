@@ -498,11 +498,14 @@ def ingest_repository(
     cache_payload(result.payload)
 
     estimate = estimate_calls(result.payload)
+    # The declaration total is reported by the scanner on the payload itself;
+    # estimate_calls only prices the model fallback.
+    declaration_count = int(result.payload.get("declaration_count") or 0)
     emit(
         f"scanned {estimate['total_files']} files: "
         f"{estimate['already_described']} documented by their authors, "
         f"{estimate['gap_files']} needing the model, "
-        f"{estimate['declaration_count']} declarations extracted"
+        f"{declaration_count} declarations extracted"
     )
 
     summary = write_payload(result.payload, on_stage=emit)

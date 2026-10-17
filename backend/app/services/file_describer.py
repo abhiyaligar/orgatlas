@@ -141,6 +141,30 @@ def _chunks(rows: List[Dict[str, Any]], size: int = BATCH) -> Iterable[List[Dict
         yield rows[start:start + size]
 
 
+def _write_chunk(graph, chunk: List[Dict[str, Any]]) -> int:
+    """Upsert one chunk, recovering once from a connection that went stale.
+
+    The model pass can spend minutes on the provider before the first write, by
+    which time the server may have closed the connection the caller was handed
+    when the ingest began. Failing there throws away every description that was
+    just generated, so one reconnect and one retry is worth far more than the
+    duplicate upsert costs: the query is idempotent.
+    """
+    try:
+        result = graph.query(UPSERT_MODEL_DESCRIPTION, {"rows": chunk})
+    except (ConnectionError, TimeoutError, OSError) as exc:
+        logger.warning(
+            "graph write failed (%s); reconnecting and retrying %d row(s)",
+            type(exc).__name__,
+            len(chunk),
+        )
+        graph_manager.reset_client()
+        result = graph_manager.get_or_create_graph().query(
+            UPSERT_MODEL_DESCRIPTION, {"rows": chunk}
+        )
+    return sum(row[0] if row else 0 for row in result.result_set)
+
+
 def run_fallback(
     payload: Dict[str, Any],
     repository_id: str,
@@ -221,9 +245,7 @@ def run_fallback(
     graph = graph_manager.get_or_create_graph()
     updated = 0
     for chunk in _chunks(rows):
-        result = graph.query(UPSERT_MODEL_DESCRIPTION, {"rows": chunk})
-        for row in result.result_set:
-            updated += row[0] if row else 0
+        updated += _write_chunk(graph, chunk)
 
     usage_totals: Dict[str, int] = {}
     for row in rows:
