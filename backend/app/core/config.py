@@ -30,7 +30,12 @@ class Settings(BaseSettings):
     FALKORDB_PASSWORD: Optional[str] = None
     FALKORDB_GRAPH_NAME: str = "orgatlas_dev"
 
-# Nebius LLM inference configuration (OpenAI-compatible)
+# Answer synthesis. On by default so /ask is model-written; set false to
+    # answer from retrieved graph facts only. Tests disable it so the suite
+    # never depends on a reachable or billable provider.
+    ASK_SYNTHESIS_ENABLED: bool = True
+
+    # Nebius LLM inference configuration (OpenAI-compatible)
     # Used only as a fallback for files whose authors wrote no usable
     # documentation. It is never called from the E2B sandbox, which receives no
     # provider credentials.

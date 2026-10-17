@@ -15,10 +15,12 @@ blocks the deterministic answer.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Protocol
 
-from app.api.schemas import AskQuestionResponse, EvidenceSubgraph
+from app.api.schemas import AskQuestionResponse, Citation, EvidenceSubgraph
+from app.core.config import settings
 from app.evidence.service import EvidenceService
+from app.llm.grounding import lower_confidence, validate_citations
 from app.services.decision_service import DecisionTraceService
 from app.services.impact_service import ChangeImpactService
 from app.services.onboarding_service import OnboardingContextService
@@ -89,6 +91,17 @@ TEAM_ENTITIES = {
 
 DEFAULT_TEAM_ID = "team_payments"
 
+MAX_FACT_CHARS = 4000
+
+
+class SynthesisProvider(Protocol):
+    """The slice of the provider this service depends on."""
+
+    available: bool
+
+    async def generate_synthesis(self, request: Any) -> Any:
+        ...
+
 
 class AskService:
     """Routes a question to an approved intent and assembles its evidence."""
@@ -100,12 +113,40 @@ class AskService:
         impact: Optional[ChangeImpactService] = None,
         onboarding: Optional[OnboardingContextService] = None,
         ownership: Optional[OwnershipService] = None,
+        provider: Optional[SynthesisProvider] = None,
     ) -> None:
         self.evidence = evidence or EvidenceService()
         self.decisions = decisions or DecisionTraceService(evidence=self.evidence)
         self.impact = impact or ChangeImpactService(evidence=self.evidence)
         self.onboarding = onboarding or OnboardingContextService(evidence=self.evidence)
         self.ownership = ownership or OwnershipService(evidence=self.evidence)
+        self._provider = provider
+        self._provider_loaded = provider is not None
+
+    @property
+    def provider(self) -> Optional[SynthesisProvider]:
+        """Resolve the synthesis provider.
+
+        An explicitly injected provider always wins, so a caller can drive the
+        synthesis path deliberately regardless of the global setting.
+        Otherwise synthesis is on by default and loaded lazily, and
+        ``ASK_SYNTHESIS_ENABLED=false`` disables it so an offline or
+        cost-free run answers from graph facts only.
+        """
+        if self._provider is not None:
+            return self._provider
+        if not settings.ASK_SYNTHESIS_ENABLED:
+            return None
+        if not self._provider_loaded:
+            self._provider_loaded = True
+            try:
+                from app.llm.adapter import NebiusLLMAdapter
+
+                self._provider = NebiusLLMAdapter()
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("no synthesis provider available: %s", exc)
+                self._provider = None
+        return self._provider
 
     # --- intent routing ------------------------------------------------------
 
@@ -319,6 +360,123 @@ class AskService:
             ],
         }
 
+    # --- answer synthesis ----------------------------------------------------
+
+    @staticmethod
+    def _facts_text(package: Dict[str, Any]) -> str:
+        """Flatten a package into the facts a narrative may be written from."""
+        lines: List[str] = [package["answer"][:MAX_FACT_CHARS]]
+
+        graph = package.get("graph")
+        if graph is not None and graph.paths:
+            lines.append("\nEvidence paths:")
+            lines.extend(f"- {path}" for path in graph.paths[:8])
+        return "\n".join(lines)
+
+    @staticmethod
+    def _citeable(citations: List[Any]) -> List[str]:
+        return [
+            citation.source_id
+            for citation in citations
+            if getattr(citation, "source_id", None)
+        ]
+
+    async def synthesize(self, question: str, package: Dict[str, Any]) -> Dict[str, Any]:
+        """Return the package with its answer replaced by a grounded narrative.
+
+        Falls back to the deterministic answer whenever the provider is
+        unavailable, fails, or produces an answer that does not stand on the
+        retrieved sources.
+        """
+        provider = self.provider
+        citations = package.get("citations") or []
+
+        if provider is None or not provider.available:
+            return self._fallback(
+                question, package, "no provider is configured; answering from graph facts"
+            )
+
+        from app.llm.client import SynthesisRequest, SynthesisSuccess
+
+        outcome = await provider.generate_synthesis(
+            SynthesisRequest(
+                question=question,
+                facts=self._facts_text(package),
+                citations=[
+                    {
+                        "source_id": citation.source_id,
+                        "title": citation.title,
+                        "type": citation.type,
+                        "excerpt": getattr(citation, "excerpt", None),
+                    }
+                    for citation in citations
+                    if isinstance(citation, Citation)
+                ],
+                intent=package.get("intent", ""),
+                entity_id=package.get("entity_id", ""),
+            )
+        )
+
+        if not isinstance(outcome, SynthesisSuccess):
+            return self._fallback(
+                question,
+                package,
+                f"provider unavailable ({outcome.reason}); answering from graph facts",
+            )
+
+        grounding = validate_citations(outcome.answer, self._citeable(citations))
+        if not grounding.accepted:
+            logger.info("discarding ungrounded synthesis for %r", question)
+            return self._fallback(
+                question,
+                package,
+                "the generated answer cited sources that were not retrieved, "
+                "so it was discarded",
+            )
+
+        if grounding.notes:
+            logger.info("synthesis degraded for %r: %s", question, grounding.notes)
+
+        package["answer"] = grounding.answer
+        package["grounding"] = grounding
+        package["synthesis"] = {"model": outcome.model, "usage": outcome.usage}
+        package["evidence_summary"] = (
+            f"{package['evidence_summary']} Synthesised by {outcome.model} from "
+            f"{len(citations)} retrieved source(s)."
+        )
+        if grounding.degraded:
+            package["evidence_summary"] += " " + " ".join(grounding.notes)
+        return package
+
+    def _fallback(self, question: str, package: Dict[str, Any], reason: str) -> Dict[str, Any]:
+        """Answer from the retrieved evidence without the model.
+
+        The deterministic narrative is preferred over the generic evidence
+        listing, because it carries real content the listing cannot: an
+        ownership query with no cited documents still knows the owning team and
+        its members. The evidence-listing helper is used only when there is no
+        narrative at all.
+        """
+        logger.info("fallback answer for %r: %s", question, reason)
+        package["fallback_reason"] = reason
+
+        if package.get("answer"):
+            package["evidence_summary"] = (
+                f"{package['evidence_summary']} Answered from graph facts: {reason}."
+            )
+            return package
+
+        fallback = self.evidence.build_fallback_answer(
+            {
+                "citations": package.get("citations") or [],
+                "graph": package.get("graph") or EvidenceSubgraph(),
+            },
+            question,
+        )
+        package["answer"] = fallback["answer"]
+        package["evidence_summary"] = fallback["evidence_summary"]
+        return package
+
     # --- response assembly ---------------------------------------------------
 
     def insufficient(self, question: str) -> AskQuestionResponse:
@@ -327,12 +485,18 @@ class AskService:
     def build_response(self, question: str, package: Dict[str, Any]) -> AskQuestionResponse:
         """Assemble the final response, bounding the subgraph for rendering."""
         package["graph"] = self.evidence.truncate_subgraph(package["graph"])
+
+        confidence = package.get("confidence") or "partial"
+        grounding = package.get("grounding")
+        if grounding is not None:
+            confidence = lower_confidence(confidence, grounding.confidence_ceiling)
+
         return AskQuestionResponse(
             answer=package["answer"],
             evidence_summary=package["evidence_summary"],
             citations=package.get("citations") or [],
             graph=package["graph"] or EvidenceSubgraph(),
-            confidence=package["confidence"],
+            confidence=confidence,
             suggested_questions=package.get("suggested_questions")
             or self.evidence.default_follow_ups(),
         )

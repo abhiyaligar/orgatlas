@@ -13,7 +13,13 @@ _ask = AskService()
 
 @router.post("", response_model=AskQuestionResponse)
 async def ask_question(body: AskQuestionRequest):
-    """Route a question to an approved intent and return a graph-grounded answer."""
+    """Route a question to an approved intent and return a graph-grounded answer.
+
+    The answer narrative is written by the model from retrieved evidence, and
+    every citation it emits is validated against that evidence. If the provider
+    is unavailable, or the narrative cannot be grounded, the same evidence is
+    answered deterministically instead.
+    """
     question = body.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="question must not be empty")
@@ -27,4 +33,5 @@ async def ask_question(body: AskQuestionRequest):
     package["confidence"] = _ask.confidence_for(
         package.get("citations") or [], package.get("graph")
     )
+    package = await _ask.synthesize(question, package)
     return _ask.build_response(question, package)
