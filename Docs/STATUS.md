@@ -18,12 +18,12 @@ Update this whenever a milestone lands or an item below is closed.
 | Model fallback | 4 calls, 2,522 tokens total, zero failures on the last run |
 | MCP surface | 11 read-only tools, 4 resource templates, 3 prompts; verified over real JSON-RPC |
 | MCP auth | Bearer token from `.env`, constant-time, every method guarded; production refuses to mount without one |
-| Tests | Backend 424 passing, 6 skipped by design; frontend 16 passing |
+| Tests | Backend 536 passing, 6 skipped by design; frontend 20 passing. Full gate green: typecheck, lint, build, backend and frontend suites |
 | Sandbox template | `orgatlas-ingest-ts`, grammar smoke test passing at build time |
 | `/ask` synthesis | LLM-first over `zai-org/GLM-5.3-Flash`, grounded citations, deterministic fallback; verified live |
 | `/ask` routing | Graph-driven: terms resolve to real nodes, and the node's label picks the intent |
 | Slack bot | Answers on mention in allowlisted channels, from the same `AskService.answer()` the API uses. 21 tests |
-| Document ingest | PDF / markdown / text / CSV upload; 31 tests. Extraction verified against the source |
+| Document ingest | PDF / markdown / text / CSV upload. Extraction verified against the source; 33 tests |
 | Decision evidence | Rationale, people, Slack quotes, metrics, commits, migration, and stated gaps |
 | Descriptions | Complete to 5,000 characters, cut only at a sentence boundary and only when marked |
 
