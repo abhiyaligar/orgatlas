@@ -32,6 +32,37 @@ CASES = _load_cases()
 LIVE = os.environ.get("ORGATLAS_LIVE_EVAL") == "1"
 
 
+def _graph_has_data() -> bool:
+    """Whether the demo knowledge graph is loaded for these live cases.
+
+    This suite deliberately mocks nothing: it asks real questions and checks the
+    real evidence. That makes it a genuine integration check and means it cannot
+    run against an empty database. Checking for one of the entities the expected
+    answers name is deliberate. A single leftover node is not a loaded graph, and
+    treating it as one turned a missing fixture into a wall of failures.
+    """
+    try:
+        from app.graph.connection import graph_manager
+
+        graph = graph_manager.get_graph()
+        for entity_id in ("svc_checkout", "svc_token_service", "tech_kafka", "team_payments"):
+            found = graph.query(
+                "MATCH (n {id: $id}) RETURN count(n)", {"id": entity_id}
+            ).result_set
+            if found and int(found[0][0]) > 0:
+                return True
+        return False
+    except Exception:
+        return False
+
+
+requires_graph = pytest.mark.skipif(
+    not _graph_has_data(),
+    reason="the evaluation suite asks real questions and needs the demo graph; "
+    "ingest a repository or run the seed script first",
+)
+
+
 @pytest.fixture(scope="module")
 def client():
     with TestClient(create_app()) as test_client:
@@ -54,6 +85,7 @@ def _entity_ids(payload: Dict[str, Any]) -> List[str]:
 
 
 @pytest.mark.parametrize("case", [c for c in CASES if not c.get("expect_insufficient")], ids=lambda c: c["id"])
+@requires_graph
 class TestDemoQuestions:
     def test_answer_is_returned(self, client, case):
         payload = _ask(client, case["prompt"])
@@ -120,6 +152,7 @@ class TestInsufficientEvidence:
         assert response.status_code == 400
 
 
+@requires_graph
 class TestGroundingGuarantee:
     def test_every_answer_cites_only_retrieved_sources(self, client):
         for case in CASES:

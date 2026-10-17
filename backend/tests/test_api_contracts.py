@@ -115,7 +115,7 @@ ENTITY_DETAIL = {
 
 
 @pytest.fixture
-def seeded_graph():
+def seeded_graph(seeded_term_resolution):
     """Bind every gateway retrieval method to a deterministic seeded result."""
     patches = {
         "get_decision_trace": DECISION_TRACE,
