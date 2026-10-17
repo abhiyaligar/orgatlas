@@ -11,11 +11,26 @@ import { FileHistory } from "@/features/repos/FileHistory";
 import { SymbolLookup } from "@/features/repos/SymbolLookup";
 import type { RepositorySummary } from "@/types";
 
-/** Repositories created by the fictional seed, not by real ingestion. */
-function isSeeded(repository: RepositorySummary): boolean {
-  return repository.source === "seed" || repository.id.startsWith("repo_checkout") ||
-    repository.id.startsWith("repo_token_service") || repository.id.startsWith("repo_billing");
+/**
+ * Which of the three repository kinds this is.
+ *
+ * Ingested repositories carry a `source` naming where the code came from; the
+ * fictional seed carries none. A third group is real but metadata-only: a
+ * dependency named in a manifest that was deliberately never cloned.
+ */
+type RepositoryKind = "ingested" | "metadata-only" | "seeded";
+
+function repositoryKind(repository: RepositorySummary): RepositoryKind {
+  if (!repository.source) return "seeded";
+  if (repository.commit_count === 0 && repository.file_count === 0) return "metadata-only";
+  return "ingested";
 }
+
+const KIND_LABELS: Record<RepositoryKind, string> = {
+  ingested: "ingested",
+  "metadata-only": "declared dependency, not cloned",
+  seeded: "fictional seed",
+};
 
 function RepositoryCard({
   repository,
@@ -26,6 +41,8 @@ function RepositoryCard({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const kind = repositoryKind(repository);
+
   return (
     <li>
       <button
@@ -38,13 +55,15 @@ function RepositoryCard({
       >
         <div className="flex items-center justify-between gap-2">
           <span className="font-medium">{repository.name}</span>
-          <Badge variant={isSeeded(repository) ? "warning" : "success"}>
-            {isSeeded(repository) ? "fictional seed" : "real repository"}
+          <Badge variant={kind === "ingested" ? "success" : kind === "seeded" ? "warning" : "outline"}>
+            {KIND_LABELS[kind]}
           </Badge>
         </div>
         <p className="truncate text-xs text-muted-foreground">{repository.url}</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          {repository.commit_count} commits / {repository.file_count} files
+          {kind === "metadata-only"
+            ? "no code ingested"
+            : `${repository.commit_count} commits / ${repository.file_count} files`}
           {repository.dependencies.length
             ? ` / ${repository.dependencies.length} declared dependencies`
             : ""}
@@ -59,7 +78,12 @@ export function RepositoriesView({ onShowGraph }: { onShowGraph?: () => void }) 
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const ingested = useMemo(
-    () => (data ?? []).filter((repository) => !isSeeded(repository)),
+    () => (data ?? []).filter((repository) => repositoryKind(repository) === "ingested"),
+    [data],
+  );
+
+  const others = useMemo(
+    () => (data ?? []).filter((repository) => repositoryKind(repository) !== "ingested"),
     [data],
   );
 
@@ -67,6 +91,9 @@ export function RepositoriesView({ onShowGraph }: { onShowGraph?: () => void }) 
     () => data?.find((repository) => repository.id === selectedId) ?? null,
     [data, selectedId],
   );
+
+  const selectedKind = selected ? repositoryKind(selected) : null;
+  const hasCode = selectedKind === "ingested";
 
   const brief = useRepoBrief(selectedId ?? "");
   const churn = useRepoChurn(selectedId ?? "");
@@ -77,8 +104,9 @@ export function RepositoriesView({ onShowGraph }: { onShowGraph?: () => void }) 
       <div className="space-y-1">
         <h2 className="text-xl font-semibold">Repositories</h2>
         <p className="text-sm text-muted-foreground">
-          Real repositories are ingested from their git history. Fictional seed repositories back the
-          decision and ownership material.
+          Repositories with code were ingested from their git history. Some are recorded as declared
+          dependencies without being cloned, and the fictional seed backs the decision and ownership
+          material.
         </p>
       </div>
 
@@ -98,6 +126,24 @@ export function RepositoriesView({ onShowGraph }: { onShowGraph?: () => void }) 
           </h3>
           <ul className="grid gap-3 md:grid-cols-2">
             {ingested.map((repository) => (
+              <RepositoryCard
+                key={repository.id}
+                repository={repository}
+                selected={repository.id === selectedId}
+                onSelect={() => setSelectedId(repository.id)}
+              />
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {state === "success" && others.length > 0 ? (
+        <section aria-labelledby="other-repos" className="space-y-3">
+          <h3 id="other-repos" className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Declared and seeded
+          </h3>
+          <ul className="grid gap-3 md:grid-cols-2">
+            {others.map((repository) => (
               <RepositoryCard
                 key={repository.id}
                 repository={repository}
@@ -183,16 +229,18 @@ export function RepositoriesView({ onShowGraph }: { onShowGraph?: () => void }) 
             </Card>
           ) : null}
 
-          {fileId ? <FileHistory fileId={fileId} key={fileId} /> : null}
+          {hasCode && fileId ? <FileHistory fileId={fileId} key={fileId} /> : null}
 
-          <CommitTimeline repositoryId={selected.id} />
+          {hasCode ? <CommitTimeline repositoryId={selected.id} /> : null}
 
-          <DependencyView
-            repository={selected}
-            onOpenRepository={(repositoryId) => setSelectedId(repositoryId)}
-          />
+          {hasCode ? (
+            <DependencyView
+              repository={selected}
+              onOpenRepository={(repositoryId) => setSelectedId(repositoryId)}
+            />
+          ) : null}
 
-          <SymbolLookup fileId={fileId ?? undefined} />
+          {hasCode ? <SymbolLookup fileId={fileId ?? undefined} /> : null}
         </section>
       ) : null}
     </div>
