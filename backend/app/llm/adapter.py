@@ -27,7 +27,11 @@ from app.llm.client import SynthesisFailure, SynthesisRequest, SynthesisSuccess
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT_SECONDS = 15
+# 15s was the original design default and is too tight in practice: a reasoning
+# model on a multi-source evidence package routinely exceeds it and returns
+# nothing. One demo question completed in 15s while another timed out three
+# times, so the allowance is generous and configurable.
+DEFAULT_TIMEOUT_SECONDS = 45
 DEFAULT_MAX_RETRIES = 2
 DEFAULT_MAX_TOKENS = 2048
 
@@ -43,14 +47,14 @@ class NebiusLLMAdapter:
         api_key: str | None = None,
         base_url: str | None = None,
         model: str | None = None,
-        timeout: int = DEFAULT_TIMEOUT_SECONDS,
+        timeout: int | None = None,
         max_retries: int = DEFAULT_MAX_RETRIES,
         max_tokens: int = DEFAULT_MAX_TOKENS,
     ) -> None:
         self.api_key = api_key if api_key is not None else settings.NEBIUS_API_KEY
         self.base_url = base_url if base_url is not None else settings.NEBIUS_API_BASE_URL
         self.model = model if model is not None else settings.NEBIUS_MODEL_NAME
-        self.timeout = timeout
+        self.timeout = timeout or settings.ASK_SYNTHESIS_TIMEOUT_SECONDS
         self.max_retries = max_retries
         self.max_tokens = max_tokens
 

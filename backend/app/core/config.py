@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # answer from retrieved graph facts only. Tests disable it so the suite
     # never depends on a reachable or billable provider.
     ASK_SYNTHESIS_ENABLED: bool = True
+    # Generous because a reasoning model on a multi-source evidence package
+    # exceeds shorter limits and returns an empty completion.
+    ASK_SYNTHESIS_TIMEOUT_SECONDS: int = 45
 
     # Nebius LLM inference configuration (OpenAI-compatible)
     # Used only as a fallback for files whose authors wrote no usable

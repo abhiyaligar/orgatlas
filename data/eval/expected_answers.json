@@ -1,0 +1,76 @@
+{
+  "description": "Expected evidence for the five demo questions plus the negative case. Verified against the seeded graph: these are the citations and entities retrieval actually returns, not aspirations. Onboarding topics link to a team via RECOMMENDED_FOR.",
+  "cases": [
+    {
+      "id": "kafka_decision",
+      "prompt": "Why does Checkout use Kafka instead of synchronous calls?",
+      "intent": "decision",
+      "required_citations": [
+        "doc_rfp_kafka",
+        "doc_postmortem_2024_03"
+      ],
+      "any_citations": [
+        "inc_2024_03_black_friday",
+        "pr_checkout_kafka_producer",
+        "ticket_pay_1042"
+      ],
+      "required_substrings": [
+        "Kafka"
+      ]
+    },
+    {
+      "id": "token_ownership",
+      "prompt": "Who owns Token Service and which services depend on it?",
+      "intent": "impact",
+      "required_entities": [
+        "svc_token_service"
+      ],
+      "required_substrings": [
+        "Token Service",
+        "Payments Core"
+      ]
+    },
+    {
+      "id": "payments_onboarding",
+      "prompt": "What should a new Payments engineer learn in their first week?",
+      "intent": "onboarding",
+      "required_substrings": [
+        "Onboarding guide"
+      ],
+      "required_summary_substrings": [
+        "3 topics"
+      ]
+    },
+    {
+      "id": "incident_origin",
+      "prompt": "Which incident led to the Kafka decision, and where was it documented?",
+      "intent": "decision",
+      "required_citations": [
+        "doc_postmortem_2024_03"
+      ],
+      "any_citations": [
+        "inc_2024_03_black_friday",
+        "doc_rfp_kafka"
+      ]
+    },
+    {
+      "id": "checkout_expertise",
+      "prompt": "Who has relevant experience with the Checkout event pipeline?",
+      "intent": "ownership",
+      "required_entities": [
+        "person_sarah_chen",
+        "person_alex_rivera"
+      ],
+      "required_substrings": [
+        "Checkout"
+      ]
+    },
+    {
+      "id": "negative_cobol",
+      "prompt": "Why do we use Cobol?",
+      "intent": null,
+      "expect_insufficient": true,
+      "forbid_citations": true
+    }
+  ]
+}
