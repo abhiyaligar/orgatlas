@@ -96,6 +96,25 @@ An ambiguous name returns every match with its container rather than silently ch
 | `confidence` | Supported, partial, or insufficient evidence |
 | `suggested_questions` | Relevant next questions |
 
+## Ingest job lifecycle
+
+`POST /repos/ingest` returns immediately and the scan runs in the background. A client
+polls `GET /repos/ingest/{job_id}` until `status` is terminal.
+
+| `status` | Meaning | Terminal |
+| --- | --- | --- |
+| `queued` | Accepted, waiting for a sandbox | no |
+| `cloning` | Sandbox creation, app sync, or git clone in progress | no |
+| `parsing` | Walking history and extracting files, symbols, dependencies | no |
+| `writing` | Committing batched graph updates | no |
+| `describing` | Running the model fallback over files with no authored docs | no |
+| `done` | Finished; the three counts below are final | yes |
+| `failed` | Stopped; `error_message` says why | yes |
+
+`commits_ingested`, `files_indexed`, and `identities_resolved` increment as work completes, so
+they are meaningful mid-flight. `stage_detail` carries the scanner's own message and may be
+updated without a status change.
+
 ## Error strategy
 
 | Condition | Status | Client outcome |
