@@ -440,8 +440,14 @@ def test_an_empty_upload_is_a_bad_request():
 
 
 def test_a_supported_upload_records_its_kind():
+    # Unique content per run. Documents are keyed by a hash of their content, so
+    # reusing the same bytes across tests writes the same primary key in the
+    # shared test database, which made this test fail intermittently.
+    import uuid
+
+    body = f"# T\n\n{uuid.uuid4()}\n".encode()
     response = _client().post(
-        "/api/docs", files={"file": ("notes.md", b"# T\n\nBody.\n", "text/markdown")},
+        "/api/docs", files={"file": ("notes.md", body, "text/markdown")},
         data={"extract": "false"},
     )
     assert response.status_code == 200
