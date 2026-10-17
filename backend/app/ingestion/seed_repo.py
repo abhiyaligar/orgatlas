@@ -464,38 +464,67 @@ def cache_payload(payload: dict[str, Any]) -> Path | None:
         return None
 
 
-def ingest_repository(url: str, on_stage=None, run_model_fallback: bool = True) -> dict[str, Any]:
+def ingest_repository(
+    url: str,
+    on_stage=None,
+    run_model_fallback: bool = True,
+    on_progress=None,
+) -> dict[str, Any]:
     """Run the full pipeline: sandbox scan, batched graph write, model fallback.
 
     Authored documentation is written first and is never overwritten by the
     model. The fallback only fills files their authors left undescribed, and
     only when a usable provider key is configured.
+
+    ``on_stage`` reports every stage as it happens. ``on_progress`` is an
+    optional narrower callback for a caller that must also update persisted
+    state, such as an ingestion job row.
     """
     from app.services.file_describer import estimate_calls, run_fallback
+
+    report = on_stage or on_progress
+
+    def emit(message: str) -> None:
+        if on_progress is not None:
+            on_progress(message)
+        elif on_stage is not None:
+            on_stage(message)
 
     request = ScanRequest(
         repository_url=url,
         commit_depth=int(settings.INGEST_COMMIT_DEPTH or 0),
     )
-    result = run_scan(request, on_stage=on_stage)
+    result = run_scan(request, on_stage=emit)
     cache_payload(result.payload)
 
-    if on_stage is not None:
-        estimate = estimate_calls(result.payload)
-        on_stage(
-            f"scan produced {estimate['total_files']} files: "
-            f"{estimate['already_described']} documented by their authors, "
-            f"{estimate['gap_files']} needing the model"
-        )
+    estimate = estimate_calls(result.payload)
+    emit(
+        f"scanned {estimate['total_files']} files: "
+        f"{estimate['already_described']} documented by their authors, "
+        f"{estimate['gap_files']} needing the model, "
+        f"{estimate['declaration_count']} declarations extracted"
+    )
 
-    summary = write_payload(result.payload, on_stage=on_stage)
+    summary = write_payload(result.payload, on_stage=emit)
     summary["sandbox_id"] = result.sandbox_id
+    summary["identities_resolved"] = _identity_count(result.payload)
 
     repository_id = repository_id_for(url)
     summary["descriptions"] = run_fallback(
         result.payload,
         repository_id,
         dry_run=not run_model_fallback,
-        on_stage=on_stage,
+        on_stage=emit,
     )
+    emit(f"complete: {summary['files']} files, {summary['commits']} commits")
     return summary
+
+
+def _identity_count(payload: dict[str, Any]) -> int:
+    """Count distinct resolved contributor identities in a scan payload."""
+    identities = {
+        (author.get("email") or "").strip().lower()
+        for author in payload.get("authors", [])
+        if author.get("email")
+    }
+    return len(identities)

@@ -50,6 +50,38 @@ def _serialize(job: IngestJob) -> IngestJobResponse:
     )
 
 
+def _progress_advance(job, session, stage: str):
+    """Report the stage a message belongs to, so the panel shows real progress.
+
+    The scan runs sandbox creation, clone, parsing, graph writes and the
+    description fallback in one call. Mapping its stage messages onto distinct
+    statuses is what lets a caller see a scan progressing instead of sitting on
+    one label for its whole duration. Messages that match nothing only refresh
+    the detail text, so an unmapped message never invents a status change.
+    """
+    stages = (
+        ("creating sandbox", "cloning"),
+        ("syncing", "cloning"),
+        ("starting clone", "cloning"),
+        ("cloning", "cloning"),
+        ("scanned", "writing"),
+        ("batch", "writing"),
+        ("model fallback", "describing"),
+    )
+
+    def report(message: str) -> None:
+        for marker, status in stages:
+            if marker in message.lower():
+                job.status = status
+                job.stage_detail = message[:500]
+                session.commit()
+                return
+        job.stage_detail = message[:500]
+        session.commit()
+
+    return report
+
+
 def _run_ingest(job_id: int, repository_url: str) -> None:
     """Background entry point that drives one ingestion run."""
     from datetime import datetime, timezone
@@ -70,14 +102,17 @@ def _run_ingest(job_id: int, repository_url: str) -> None:
         session.commit()
 
     try:
-        advance("cloning", "starting sandbox")
+        advance("queued", "sandbox created")
+        advance("cloning", "cloning the target repository")
         summary = ingest_repository(
             repository_url,
             on_stage=lambda message: advance("cloning", message),
+            on_progress=_progress_advance(job, session, "parsing"),
         )
         job.commits_ingested = summary.get("commits", 0)
         job.files_indexed = summary.get("files", 0)
-        job.identities_resolved = summary.get("dependencies", 0)
+        # identities_resolved counts contributors, not declared dependencies.
+        job.identities_resolved = int(summary.get("identities_resolved", 0))
         job.status = "done"
         job.stage_detail = "ingestion complete"
         job.completed_at = datetime.now(timezone.utc)
