@@ -8,6 +8,24 @@
       content="OrgAtlas engineering onboarding and decision archaeology"
     />
     <title>OrgAtlas</title>
+    <script>
+      // Apply the stored theme before the first paint. React mounts later, and
+      // without this the page would render light and then flip, which reads as
+      // a glitch rather than a preference being honoured.
+      (function () {
+        try {
+          var stored = window.localStorage.getItem("orgatlas.theme");
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var dark = stored === "dark" || (stored === null && prefersDark);
+          document.documentElement.classList.toggle("dark", dark);
+          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        } catch (error) {
+          /* Light is the default, so a failure here needs no recovery. */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

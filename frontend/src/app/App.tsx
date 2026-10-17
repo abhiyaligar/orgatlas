@@ -5,8 +5,10 @@ import { AppShell } from "@/components/layout/AppShell";
 import { DemoModeBanner } from "@/components/layout/DemoModeBanner";
 import { AskWorkspace } from "@/features/ask/AskWorkspace";
 import { GraphExplorer } from "@/features/graph/GraphExplorer";
+import { LandingPage } from "@/features/landing/LandingPage";
 import { OnboardingView } from "@/features/onboarding/OnboardingView";
 import { RepositoriesView } from "@/features/repos/RepositoriesView";
+import { useHashRoute } from "@/lib/useHashRoute";
 import type { AppView, EvidenceSubgraph } from "@/types";
 
 const TEAMS = [
@@ -40,8 +42,13 @@ export function App() {
   const [activeView, setActiveView] = useState<AppView>("ask");
   const [teamId, setTeamId] = useState(TEAMS[0].id);
   const [sharedGraph, setSharedGraph] = useState<EvidenceSubgraph | null>(null);
+  const [route, openDashboard, goToLanding] = useHashRoute();
 
   const teamLabel = TEAMS.find((team) => team.id === teamId)?.label ?? teamId;
+
+  if (route === "landing") {
+    return <LandingPage onOpenDashboard={openDashboard} />;
+  }
 
   return (
     <AppShell
@@ -51,6 +58,7 @@ export function App() {
             activeView={activeView}
             onViewChange={setActiveView}
             teamName={activeView === "onboarding" ? teamLabel : undefined}
+            onGoHome={goToLanding}
           />
           <DemoModeBanner />
         </>
