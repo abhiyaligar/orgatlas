@@ -19,6 +19,8 @@ from app.mcp import (
     validate_identifier,
 )
 from app.mcp import tools as tools_module
+WRITE_TOOLS = {"ingest_repository", "get_ingest_job"}
+
 from app.mcp.server import create_server, mount_dev_only
 
 
@@ -90,7 +92,7 @@ class TestEnvelope:
 
 
 class TestSurface:
-    def test_exposes_exactly_the_eleven_planned_tools(self, server):
+    def test_exposes_the_eleven_read_tools_and_the_two_write_tools(self, server):
         assert {t.name for t in _list(server, "list_tools")} == {
             "get_architecture_context",
             "find_owner_and_expertise",
@@ -102,27 +104,46 @@ class TestSurface:
             "assess_file_risk",
             "get_repo_dependency_impact",
             "describe_file",
+        "ingest_repository",
+        "get_ingest_job",
             "describe_symbol",
         }
 
-    def test_every_tool_declares_read_only_and_non_destructive(self, server):
+    def test_read_tools_declare_read_only_and_non_destructive(self, server):
         for tool in _list(server, "list_tools"):
+            if tool.name in WRITE_TOOLS:
+                continue
             assert tool.annotations is not None, f"{tool.name} has no annotations"
             assert tool.annotations.read_only_hint is True, tool.name
             assert tool.annotations.destructive_hint is False, tool.name
 
+    def test_write_tools_declare_the_opposite(self, server):
+        """A client trusts readOnlyHint. It has to be true about these."""
+        for tool in _list(server, "list_tools"):
+            if tool.name not in WRITE_TOOLS:
+                continue
+            assert tool.annotations.read_only_hint is False, tool.name
+            assert tool.annotations.destructive_hint is True, tool.name
+
     @pytest.mark.parametrize(
         "marker",
-        ["write", "create", "update", "delete", "commit", "push", "exec", "edit_", "run_"],
+        ["create", "update", "delete", "push", "exec", "edit_", "run_"],
     )
     def test_no_tool_name_implies_mutation(self, server, marker):
         for tool in _list(server, "list_tools"):
+            if tool.name in WRITE_TOOLS:
+                continue
             assert marker not in tool.name.lower(), f"{tool.name} looks mutating"
 
     def test_every_tool_description_discloses_advisory_only_use(self, server):
         """Required by Docs/MCP_SERVER.md: results are not change approval."""
         for tool in _list(server, "list_tools"):
             description = (tool.description or "").lower()
+            if tool.name in WRITE_TOOLS:
+                # Advisory-only is the wrong disclosure for a tool that writes.
+                assert "changes the knowledge graph" in description, tool.name
+                assert "cannot be undone" in description, tool.name
+                continue
             assert "advisory" in description, tool.name
             assert "not change approval" in description, tool.name
 
@@ -404,10 +425,14 @@ class TestHttpRoundTrip:
                 client, "resources/templates/list", headers
             )["resourceTemplates"]
 
-        assert len(tools) == 11
+        assert len(tools) == 13
         assert len(prompts) == 3
         assert len(templates) == 4
-        assert all(t["annotations"]["readOnlyHint"] for t in tools)
+        assert all(t["annotations"] for t in tools)
+        read_only = [t for t in tools if t["annotations"]["readOnlyHint"]]
+        write = [t for t in tools if not t["annotations"]["readOnlyHint"]]
+        assert len(read_only) == 11
+        assert {t["name"] for t in write} == WRITE_TOOLS
 
     def test_browser_api_still_served_alongside_mcp(self):
         from starlette.testclient import TestClient

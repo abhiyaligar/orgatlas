@@ -91,8 +91,14 @@ def test_several_tokens_are_accepted_for_rotation(monkeypatch):
 
 def test_a_description_reports_the_count_and_never_the_token(monkeypatch):
     monkeypatch.setattr(settings, "MCP_API_TOKEN", TOKEN, raising=False)
+    monkeypatch.setattr(settings, "MCP_WRITE_API_TOKEN", "", raising=False)
     summary = describe()
-    assert summary == {"authenticated": True, "scope": MCP_READ_SCOPE, "token_count": 1}
+    assert summary == {
+        "authenticated": True,
+        "scope": MCP_READ_SCOPE,
+        "write_enabled": False,
+        "token_count": 1,
+    }
     assert TOKEN not in str(summary)
 
 

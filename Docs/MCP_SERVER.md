@@ -72,7 +72,10 @@ A tool whose answer *is* a declaration carries that detail on its entities — s
 
 ## Safety and authorization requirements
 
-- All MCP tools are read-only.
+- Eleven tools are read-only. The two ingest tools are not, and they say so:
+  `readOnlyHint: false` and `destructiveHint: true`.
+- A write tool needs the **write** token. A read token is refused before the
+  tool runs, so a read-only agent handed `MCP_API_TOKEN` cannot ingest.
 - No tool can write code, files, repositories, deployments, tickets, graph data, or external systems.
 - The server never exposes raw Cypher, database credentials, or an arbitrary query executor.
 - Tool inputs are validated and translated to parameterized allowlisted graph retrieval.
@@ -96,7 +99,7 @@ A tool whose answer *is* a declaration carries that detail on its entities — s
 
 | Tools | Resources | Prompts |
 | --- | --- | --- |
-| 11, all read-only | 4 templates | 3 |
+| 11 read, 2 write | 4 templates | 3 |
 
 Verified over real JSON-RPC: `initialize`, `tools/list`, `prompts/list`, and
 `resources/templates/list` all answer, and the browser API continues to serve alongside the mounted
@@ -112,22 +115,43 @@ Deploy the MCP server as a separately authenticated service on Render, or isolat
 
 ## MVP acceptance checks
 
-1. A compatible coding agent can discover the server's read-only capabilities.
+1. A compatible coding agent can discover the server's capabilities and can
+   tell which of them change state.
 2. It can retrieve context for Checkout or Token Service.
 3. A change-impact query returns owners, dependencies, a decision/incident link where available, and sources.
-4. No tool accepts or executes arbitrary Cypher or a write action.
+4. No tool accepts or executes arbitrary Cypher, and none reaches a database
+   directly. The ingest tools write to the graph through the same code path the
+   REST endpoint uses.
 5. A response with missing evidence says so explicitly rather than guessing.
 6. A question about a named function returns its signature, documentation, file, and line — or states that the declaration carries no doc comment.
 
 ## Authentication
 
 The HTTP route requires a bearer token read from `MCP_API_TOKEN` in `.env`.
+`MCP_WRITE_API_TOKEN` is a second, independent secret; absent it, the server is
+read-only and both ingest tools are refused.
 
 ```bash
 # .env -- comma-separated, so a secret can be rotated by running both
 MCP_API_TOKEN=old-token,new-token
+MCP_WRITE_API_TOKEN=write-token
 MCP_ALLOWED_HOSTS=orgatlas.example.com
 ```
+
+| Presented token | Reads | `ingest_repository`, `get_ingest_job` |
+| --- | --- | --- |
+| `MCP_API_TOKEN` | yes | refused |
+| `MCP_WRITE_API_TOKEN` | yes | permitted |
+
+A write token grants read as well, so a single credential can drive an agent end
+to end. The scope is resolved once in the ASGI middleware and held in a
+`ContextVar` for the duration of the request; a tool with no scope in context is
+treated as read-only, and the context is cleared afterwards so a pooled worker
+cannot leak one caller's rights to the next.
+
+The scope guard sits *inside* the tool, not only at the route. A read token
+therefore cannot reach an ingest by another path, and the refusal happens before
+any row is written.
 
 | Environment | `MCP_API_TOKEN` set | Result |
 | --- | --- | --- |
@@ -156,8 +180,9 @@ failure but a confusing one, so startup warns about it.
 - **Every method is covered.** The check is ASGI middleware wrapping the mounted
   app, so a method added to the server later is guarded without anyone
   remembering to add it.
-- **Read-only regardless.** Authentication gates *who* may ask; it does not grant
-  anything new. Every tool remains read-only.
+- **Read-only by token, not by hope.** Authentication gates *who* may ask. The
+  eleven retrieval tools stay read-only under either token; `ingest_repository`
+  and `get_ingest_job` need the write token.
 
 ### What it is not
 

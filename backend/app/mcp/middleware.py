@@ -15,7 +15,8 @@ from __future__ import annotations
 import logging
 from typing import Awaitable, Callable, MutableMapping
 
-from app.mcp.auth import MCP_READ_SCOPE, is_authorised
+from app.mcp.auth import MCP_READ_SCOPE, scope_for_token
+from app.mcp.scope import reset_scope, set_scope
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +46,19 @@ class BearerAuthMiddleware:
             for key, value in scope.get("headers", [])
         }
 
-        if not is_authorised(headers.get("authorization")):
+        granted = scope_for_token(headers.get("authorization"))
+        if not granted:
             await self._reject(send)
             return
 
-        await self.app(scope, receive, send)
+        # Publish the scope for the tools this request reaches. Reset after the
+        # call so a pooled worker cannot serve the next caller with the
+        # previous one's permissions.
+        token = set_scope(granted)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            reset_scope(token)
 
     @staticmethod
     async def _reject(send: Send) -> None:

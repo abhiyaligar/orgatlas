@@ -2,7 +2,7 @@
 
 ## Overview
 
-OrgAtlas has five runtime boundaries: a browser client, a private API/agent service, a read-only MCP server for coding agents, an isolated ingestion sandbox, and FalkorDB Cloud. Nebius is used only by the API service, to synthesise a user's question into a clear answer and to fill documentation gaps the authors themselves left.
+OrgAtlas has five runtime boundaries: a browser client, a private API/agent service, an MCP server for coding agents, read-only unless a write token is presented, an isolated ingestion sandbox, and FalkorDB Cloud. Nebius is used only by the API service, to synthesise a user's question into a clear answer and to fill documentation gaps the authors themselves left.
 
 ```text
 Browser: React application
@@ -49,7 +49,7 @@ Ingestion (on request)
 | --- | --- | --- |
 | React client | Interaction, presentation, local UI state, graph rendering | Hold provider/database secrets or query FalkorDB directly |
 | FastAPI | Input validation, retrieval, tool selection, response grounding, ingestion orchestration, description fallback | Return uncited claims or expose unrestricted database queries |
-| MCP server | Give coding agents source-backed architecture context through approved read-only tools | Write code, alter repositories/deployments, or expose arbitrary Cypher |
+| MCP server | Give coding agents source-backed architecture context through approved read-only tools | Write code, alter repositories/deployments, or expose arbitrary Cypher. Ingesting a repository needs the separate write token (ADR-013) |
 | Ingestion sandbox | Clone one public repository, parse its history, extract declarations | Receive graph or model credentials; clone dependency repositories; touch the graph |
 | FalkorDB Cloud | Persistent graph, traversal, indexes, and source relationships | Generate natural-language answers |
 | Nebius | Grounded answer synthesis and documentation fallback for undescribed files | Connect to the graph or receive credentials from the client |
@@ -90,7 +90,9 @@ Every stored description is attributable. `docs_source` records whether the text
 - Store FalkorDB and Nebius credentials only as Render server environment variables.
 - Permit browser access only to the API's public, documented endpoints.
 - Use parameterised graph queries and an allowlist of retrieval tools.
-- Keep the MCP surface read-only, least-privileged, rate-limited, and separately authenticated from the browser demo.
+- Keep the MCP surface least-privileged and separately authenticated from the
+  browser demo: eleven tools read under either token, two write under the write
+  token only (ADR-013).
 - Give the ingestion sandbox no credential of any kind.
 - Log request metadata and failures; never log secrets.
 - Use fictional seed data for the organisation graph, and only public open-source code for ingestion.

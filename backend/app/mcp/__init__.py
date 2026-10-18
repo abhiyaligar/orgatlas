@@ -29,11 +29,16 @@ What this server provides:
 * what depends on a service, and the blast radius of changing it
 * for ingested repositories: who changed a file, when, and what changes together
 
-What it does NOT provide:
-* any write capability. This server cannot edit code, create tickets, run
-  commands, or modify the graph or any database
+What it cannot do:
+* edit code, create tickets, or run commands. Nothing here changes a file
+  outside the knowledge graph
 * certainty. Results are advisory context, not change approval. Inspect the
   code, run the tests, and let a human decide.
+
+Writing, and only when a write token is configured:
+* ingest a repository, which reads code and writes it to the graph belonging to
+  that repository alone. It replaces what a previous scan left there. It is the
+  only write capability, and it never touches a database directly.
 """.strip()
 
 READ_ONLY = ToolAnnotations(
@@ -41,6 +46,17 @@ READ_ONLY = ToolAnnotations(
     destructive_hint=False,
     idempotent_hint=True,
     open_world_hint=False,
+)
+
+# The opposite, for tools that ingest. read_only_hint is False and
+# destructive_hint is True: an ingest replaces what a previous scan left
+# for that repository, so a client that trusts these hints must ask a human
+# before running one.
+WRITES = ToolAnnotations(
+    read_only_hint=False,
+    destructive_hint=True,
+    idempotent_hint=False,
+    open_world_hint=True,
 )
 
 MAX_HOPS = 2

@@ -639,7 +639,14 @@ class AskService:
             for candidate in near:
                 matches.extend(
                     self.gateway.get_code_symbol(
-                        candidate["name"], file_id=file_id, limit=limit
+                        candidate["name"],
+                        file_id=file_id,
+                        limit=limit,
+                        # The graph has to travel with this lookup too. Reading
+                        # the org graph here finds no declarations at all, so a
+                        # symbol that resolution had just located would be
+                        # reported as having no evidence.
+                        graph_name=graph_name,
                     )
                 )
             matches = _dedupe_declarations(matches)[:limit]

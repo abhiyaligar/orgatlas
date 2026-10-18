@@ -85,6 +85,8 @@ class Settings(BaseSettings):
 
     # MCP context server security
     MCP_API_TOKEN: Optional[str] = None
+    # A separate token for tools that change the graph. Absent, /mcp stays read-only.
+    MCP_WRITE_API_TOKEN: Optional[str] = None
 
     # --- MCP transport ------------------------------------------------------
     # Host headers MCP will answer to. Localhost is allowed in development;

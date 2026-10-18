@@ -46,6 +46,9 @@ being indistinguishable from a bad deploy.
 **`ENVIRONMENT` is set to `production`, not `development`,** even though this is
 a dev deployment. `development` mounts `/mcp` with no token, and this service is
 reachable from the internet. `production` means `/mcp` refuses to mount unless
+`MCP_WRITE_API_TOKEN` grants `ingest_repository` and `get_ingest_job`, and
+also reads. Leave it unset and the server stays read-only. Render generates
+both values separately; treat them as two credentials.
 `MCP_API_TOKEN` is set, which the blueprint generates for you.
 
 ### Why the API is on a paid plan
@@ -308,7 +311,8 @@ history, people and repository structure.
 7. Confirm `MCP_ALLOWED_HOSTS` matches the deployed host, and that a request with
    a different `Host` header is refused.
 8. Confirm the frontend has loading, empty, and provider-failure states.
-9. Confirm MCP tools are read-only and return structured citations for every demo
+9. Confirm MCP tools return structured citations for every demo, and that a
+   read-only token cannot reach `ingest_repository`
    query.
 10. Confirm the ingestion template is current and its grammar smoke test passed.
 11. If Slack is deployed, confirm the bot is silent outside

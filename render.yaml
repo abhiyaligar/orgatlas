@@ -93,6 +93,10 @@ services:
       # --- MCP context server -------------------------------------------
       - key: MCP_API_TOKEN
         generateValue: true
+      # Generated separately from MCP_API_TOKEN so a read-only agent can be
+      # given one without being able to change the graph.
+      - key: MCP_WRITE_API_TOKEN
+        generateValue: true
       - key: MCP_ALLOWED_HOSTS
         # The published API hostname with no scheme, or "*" to answer any Host
         # and rely on the bearer token alone. Blank refuses every MCP request

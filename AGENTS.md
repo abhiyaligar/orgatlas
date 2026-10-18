@@ -112,23 +112,33 @@ response shapes. Keep the two in step when you change either.
 
 ## MCP server
 
-Read-only, bearer-authenticated, mounted at `/mcp`.
+Bearer-authenticated, mounted at `/mcp`. Eleven tools read. Two ingest, and
+they need a second, separate token.
 
 | Tools | Resources | Prompts |
 | --- | --- | --- |
-| 11 | 4 templates | 3 |
+| 11 read, 2 write | 4 templates | 3 |
 
 ```
 assess_change_impact          get_repo_dependency_impact
 assess_file_risk              search_architecture_evidence
 describe_file                 trace_change_origin
 describe_symbol               trace_technical_decision
-find_owner_and_expertise
-get_architecture_context
+find_owner_and_expertise      ingest_repository
+get_architecture_context      get_ingest_job
 get_onboarding_context
 ```
 
-Authentication: `Authorization: Bearer <MCP_API_TOKEN>`. Outside development
+The two ingest tools are annotated `readOnlyHint: false` and
+`destructiveHint: true`, because they are: an ingest replaces what the
+previous scan left for that repository. They enqueue a job and return an id
+rather than blocking, and the trigger is written to `audit_logs` with
+`caller_type = 'mcp_agent'` so it is distinguishable from a REST ingest.
+
+Authentication: `Authorization: Bearer <MCP_API_TOKEN>` for reads, or
+`<MCP_WRITE_API_TOKEN>` for reads *and* `ingest_repository`. A write token
+grants read too, so one credential can drive an agent end to end. Outside
+development
 the route **does not mount at all** without a token, so a missing token is a
 `404`, not an open server. `MCP_ALLOWED_HOSTS` decides which `Host` headers are
 answered to; blank refuses everything and `*` answers any, leaving the bearer
@@ -187,8 +197,9 @@ State these plainly when answering, and never paper over them:
   calls it.
 - **No file bodies.** It knows `verify_auth_otp` exists at a line in a file, not
   what is inside. That is why it cites rather than quotes source.
-- **One graph.** Repository scope is not implemented yet, so a question is
-  answered from everything in the graph rather than from one repository.
+- **Two kinds of graph.** Organisation context lives in `FALKORDB_GRAPH_NAME`.
+  Each ingested repository gets `code_{repository_id}`, and a question is
+  answered from the graph its subject actually resolved in.
 - **Retrieval is intent-scoped.** A question that resolves nothing returns
   nothing, which is correct but can look unhelpful next to a graph that visibly
   contains a plausible answer.

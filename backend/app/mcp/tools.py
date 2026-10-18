@@ -14,6 +14,7 @@ from app.graph.gateway import graph_gateway
 from app.mcp import (
     MAX_RECORDS,
     READ_ONLY,
+    WRITES,
     ToolInputError,
     citations_to_sources,
     clamp,
@@ -28,6 +29,8 @@ from app.services.decision_service import DecisionTraceService
 from app.services.impact_service import ChangeImpactService
 from app.services.onboarding_service import OnboardingContextService
 from app.services.ownership_service import OwnershipService
+
+from app.mcp.write_tools import enqueue_repository_ingest, get_ingest_job
 
 logger = logging.getLogger(__name__)
 
@@ -656,12 +659,52 @@ _TOOL_SPECS = (
 )
 
 
+# Tools that change the graph. Separate from _TOOL_SPECS because they carry
+# different annotations and a different disclosure: a client that trusts
+# readOnlyHint has to be able to tell these apart before it runs one.
+_WRITE_TOOL_SPECS = (
+    (
+        "ingest_repository",
+        "Ingest a repository",
+        "Queue a repository ingestion and return a job id straight away. The scan "
+        "clones the repository in a sandbox, reads its history and files, and "
+        "writes the code to a graph belonging to that repository alone. It runs "
+        "for minutes, so poll get_ingest_job until the status is done or failed. "
+        "Re-running is safe: every write merges on a stable id, so a second "
+        "ingest updates rather than duplicates.",
+        enqueue_repository_ingest,
+    ),
+    (
+        "get_ingest_job",
+        "Report an ingestion job",
+        "Report the current state of an ingestion job: its status, the stage it "
+        "has reached, and the counts ingested so far.",
+        get_ingest_job,
+    ),
+)
+
+WRITE_DISCLOSURE = (
+    "This tool CHANGES the knowledge graph. It needs a write token, and what it "
+    "reads afterwards will reflect the ingest. Re-running replaces the previous "
+    "scan of the same repository rather than adding to it. Confirm with a human "
+    "before ingesting, because the result cannot be undone by another query."
+)
+
+
 def register_tools(server) -> None:
-    """Attach every read-only tool to an MCPServer instance."""
+    """Attach every tool to an MCPServer instance."""
     for name, title, description, handler in _TOOL_SPECS:
         server.tool(
             name=name,
             title=title,
             description=f"{description}\n\n{ADVISORY_DISCLOSURE}",
             annotations=READ_ONLY,
+        )(handler)
+
+    for name, title, description, handler in _WRITE_TOOL_SPECS:
+        server.tool(
+            name=name,
+            title=title,
+            description=f"{description}\n\n{WRITE_DISCLOSURE}",
+            annotations=WRITES,
         )(handler)
