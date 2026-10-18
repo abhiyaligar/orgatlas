@@ -714,6 +714,7 @@ def read_symbol_source(symbol_name: str, file_id: str = "") -> Dict[str, Any]:
         ],
         notes=notes,
         confidence="supported",
+        body=read["source"],
         subgraph={
             "nodes": [
                 {"id": read["file_id"], "label": "File", "name": read["path"]},
@@ -783,6 +784,7 @@ def read_file_range(file_id: str, start_line: int = 1, end_line: int = 0) -> Dic
             + (" Output was truncated." if read["truncated"] else ""),
         ],
         confidence="supported",
+        body=read["source"],
         subgraph={
             "nodes": [{"id": read["file_id"], "label": "File", "name": read["path"]}],
             "edges": [],

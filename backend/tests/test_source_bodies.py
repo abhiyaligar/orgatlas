@@ -295,3 +295,84 @@ class TestSandboxBoundary:
         scanner = Path("app/ingestion/repo_scanner.py").read_text(encoding="utf-8")
         assert "def collect_source_texts(" in scanner
         assert '"source": source' in scanner
+
+class TestToolsActuallyReturnTheBody:
+    """A source tool that returns metadata and no code is worse than useless.
+
+    The six-part envelope had no field for retrieved text, so both tools
+    reported "12 lines read" and then handed back nothing to read. An agent
+    would have spent the call to learn it still needed to clone the repository.
+    """
+
+    def _read(self):
+        from app.services import source_reader
+
+        monkeybox = {
+            "file_id": "repo_x::src/a.py",
+            "path": "src/a.py",
+            "repository_id": "repo_x",
+            "commit_sha": "abc1234",
+            "byte_size": 42,
+            "first_line": 3,
+            "lines_returned": 2,
+            "total_lines": 9,
+            "truncated": False,
+            "source": "3\tdef handler():\n4\t    return 1",
+            "untrusted_content": True,
+            "note": source_reader.UNTRUSTED_NOTE,
+            "symbol": {
+                "name": "handler", "kind": "function", "signature": "def handler():",
+                "line": 3, "end_line": 4, "container": "", "language": "Python",
+            },
+            "match_count": 1,
+            "also_defined_at": [],
+        }
+        return monkeybox
+
+    def test_read_symbol_source_returns_the_source_text(self, configured, monkeypatch):
+        from app.mcp import tools
+
+        payload = self._read()
+        monkeypatch.setattr(tools._source_reader, "read_symbol_source",
+                            lambda name, file_id="": payload)
+        monkeypatch.setattr(tools, "validate_identifier", lambda v, f: v)
+        monkeypatch.setattr(tools, "_graph_for_file_id",
+                            lambda file_id: ("code_repo_x", None))
+
+        out = tools.read_symbol_source("handler", file_id="repo_x::src/a.py")
+
+        assert out.get("body") == payload["source"]
+        assert "def handler" in out["body"]
+
+    def test_read_file_range_returns_the_source_text(self, configured, monkeypatch):
+        from app.mcp import tools
+
+        payload = self._read()
+        monkeypatch.setattr(tools._source_reader, "read_file_range",
+                            lambda file_id, start_line=1, end_line=0: payload)
+        monkeypatch.setattr(tools, "validate_identifier", lambda v, f: v)
+        monkeypatch.setattr(tools, "_graph_for_file_id",
+                            lambda file_id: ("code_repo_x", None))
+
+        out = tools.read_file_range("repo_x::src/a.py", start_line=3, end_line=4)
+
+        assert out.get("body") == payload["source"]
+
+    def test_a_tool_with_no_body_is_unchanged_in_shape(self):
+        """Adding the field must not alter every other tool's payload."""
+        from app.mcp import envelope
+
+        assert "body" not in envelope(summary="no code here")
+        assert envelope(summary="with code", body="x").get("body") == "x"
+
+    def test_the_symbol_row_carries_what_retrieval_needs(self):
+        """file_id and end_line come from the gateway, not from string surgery
+        at the call site: a path may itself contain '::'."""
+        import inspect
+
+        from app.graph.gateway import GraphGateway
+
+        source = inspect.getsource(GraphGateway.get_code_symbol)
+        assert '"file_id"' in source
+        assert '"end_line"' in source
+        assert 'rsplit("::", 2)[0]' in source

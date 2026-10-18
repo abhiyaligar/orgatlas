@@ -288,7 +288,8 @@ RETURN s.id AS id,
        coalesce(s.container, '') AS container,
        coalesce(s.language, '') AS language,
        coalesce(s.repository_id, '') AS repository_id,
-       coalesce(s.docs_at_sha, '') AS docs_at_sha
+       coalesce(s.docs_at_sha, '') AS docs_at_sha,
+       coalesce(s.end_line, 0) AS end_line
 ORDER BY s.documented DESC, size(s.doc_comment) DESC
 LIMIT $limit
 """

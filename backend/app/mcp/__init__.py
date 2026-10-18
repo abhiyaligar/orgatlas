@@ -123,9 +123,17 @@ def envelope(
     notes: List[str] | None = None,
     actions: List[str] | None = None,
     confidence: str = "partial",
+    body: str | None = None,
 ) -> Dict[str, Any]:
-    """Build the six-part response contract every tool returns."""
-    return {
+    """Build the six-part response contract every tool returns.
+
+    ``body`` carries retrieved source text and is omitted entirely when there is
+    none, so a tool that returns no code produces a payload byte-identical to
+    what it produced before source storage existed. It is a separate key rather
+    than a note because the text *is* the answer for the two source tools: folded
+    into notes it would be decoration an agent is right to ignore.
+    """
+    payload = {
         "summary": summary,
         "entities": entities or [],
         "sources": sources or [],
@@ -136,6 +144,9 @@ def envelope(
         "confidence": confidence,
         "advisory_only": True,
     }
+    if body is not None:
+        payload["body"] = body
+    return payload
 
 
 def citations_to_sources(citations: List[Any]) -> List[Dict[str, Any]]:

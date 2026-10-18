@@ -546,6 +546,11 @@ class GraphGateway:
                 "language": row[9],
                 "repository_id": row[10],
                 "docs_at_sha": row[11],
+                "end_line": row[12],
+                # A symbol id is "{file_id}::{kind}::{name}". Splitting from the
+                # right is what makes file_id recoverable: a path may itself
+                # contain "::", so splitting from the left would corrupt it.
+                "file_id": row[0].rsplit("::", 2)[0],
             }
             for row in rows
         ]
