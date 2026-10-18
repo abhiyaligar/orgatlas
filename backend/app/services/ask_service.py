@@ -263,6 +263,11 @@ class AskService:
         if not terms:
             return None, []
 
+        # Searched across every graph, because a question can name code that
+        # lives in one repository's graph and an organisation entity that lives
+        # in the org graph. Each row records which graph it came from so the
+        # retrieval reads the same one rather than reporting no evidence for an
+        # entity it just found.
         rows = self.gateway.search_entities_by_terms(terms)
         entities = [ResolvedEntity.from_row(row) for row in rows]
         route = choose_route(question, entities)
@@ -335,7 +340,8 @@ class AskService:
             )
         if intent == INTENT_SYMBOL:
             return self.retrieve_symbol(
-                self._subject_name(entity) or (entity.name if entity else "")
+                self._subject_name(entity) or (entity.name if entity else ""),
+                graph_name=entity.graph_name if entity else "",
             )
         if intent == INTENT_FILE:
             # A repository routes here too, because "what is the tech stack" is a
@@ -344,9 +350,15 @@ class AskService:
             # exist, and the answer was a bare "insufficient evidence" while the
             # graph held every file and its language.
             if entity is not None and entity.label == LABEL_REPOSITORY:
-                return self.retrieve_repository(entity.entity_id, entity.name)
+                return self.retrieve_repository(
+                    entity.entity_id, entity.name, graph_name=entity.graph_name
+                )
             file_id = self._entity_id_matching(entity, {LABEL_FILE})
-            return self.retrieve_file(file_id) if file_id else None
+            return (
+                self.retrieve_file(file_id, graph_name=entity.graph_name)
+                if file_id
+                else None
+            )
         if intent == INTENT_HISTORY:
             if entity is None:
                 return None
@@ -607,9 +619,15 @@ class AskService:
     # no doc comment says so rather than receiving an invented explanation.
 
     def retrieve_symbol(
-        self, name: str, file_id: str = "", limit: int = 6
+        self,
+        name: str,
+        file_id: str = "",
+        limit: int = 6,
+        graph_name: str = "",
     ) -> Optional[Dict[str, Any]]:
-        matches = self.gateway.get_code_symbol(name, file_id=file_id, limit=limit)
+        matches = self.gateway.get_code_symbol(
+            name, file_id=file_id, limit=limit, graph_name=graph_name
+        )
         exact = bool(matches)
 
         if not matches:
@@ -617,7 +635,7 @@ class AskService:
             # open_payload while an exact-name lookup for "open" finds nothing.
             # Rather than report no evidence for a symbol that clearly exists,
             # widen to the declarations whose names contain the term.
-            near = self.gateway.search_code_symbols(name, limit=limit)
+            near = self.gateway.search_code_symbols(name, limit=limit, graph_name=graph_name)
             for candidate in near:
                 matches.extend(
                     self.gateway.get_code_symbol(
@@ -653,7 +671,7 @@ class AskService:
         citations: List[Citation] = []
         neighbours: List[Tuple[GraphNode, str, str]] = []
         for match in described[:4]:
-            file_node = self.gateway.get_symbol_file(match["id"])
+            file_node = self.gateway.get_symbol_file(match["id"], graph_name=graph_name)
             if file_node is None:
                 continue
             neighbour = GraphNode(
@@ -730,7 +748,7 @@ class AskService:
         }
 
     def retrieve_repository(
-        self, repository_id: str, name: str = ""
+        self, repository_id: str, name: str = "", graph_name: str = ""
     ) -> Optional[Dict[str, Any]]:
         """Answer a question about a repository from the files it contains.
 
@@ -739,11 +757,13 @@ class AskService:
         files are excluded: they are written in the same languages as the code
         they exercise and would otherwise inflate every language in the answer.
         """
-        mix = self.gateway.get_repository_language_mix(repository_id)
+        mix = self.gateway.get_repository_language_mix(repository_id, graph_name=graph_name)
         if not mix:
             return None
 
-        rows = self.gateway.get_repository_files(repository_id, per_language=3)
+        rows = self.gateway.get_repository_files(
+            repository_id, per_language=3, graph_name=graph_name
+        )
         total = sum(entry["files"] for entry in mix)
         label = name or repository_id
 
@@ -825,8 +845,10 @@ class AskService:
             ],
         }
 
-    def retrieve_file(self, file_id: str) -> Optional[Dict[str, Any]]:
-        description = self.gateway.get_file_description(file_id)
+    def retrieve_file(
+        self, file_id: str, graph_name: str = ""
+    ) -> Optional[Dict[str, Any]]:
+        description = self.gateway.get_file_description(file_id, graph_name=graph_name)
         if description is None:
             return None
 
@@ -914,7 +936,7 @@ class AskService:
         if label == LABEL_FILE:
             target = entity.entity_id
         elif label in (LABEL_CODE_SYMBOL, LABEL_COMMIT):
-            symbol_file = self.gateway.get_symbol_file(entity.entity_id)
+            symbol_file = self.gateway.get_symbol_file(entity.entity_id, graph_name=entity.graph_name)
             if symbol_file is not None:
                 target = symbol_file["file_id"]
         elif label == LABEL_REPOSITORY:
@@ -923,7 +945,7 @@ class AskService:
         if not target:
             return None
 
-        history = self.gateway.get_file_history(target, limit=limit)
+        history = self.gateway.get_file_history(target, limit=limit, graph_name=entity.graph_name)
         if not history:
             return None
 

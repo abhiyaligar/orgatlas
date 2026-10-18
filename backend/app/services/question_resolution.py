@@ -251,6 +251,10 @@ class ResolvedEntity:
     label: str
     name: str
     quality: int = 2
+    # Which graph this node was resolved from. Code lives in a graph per
+    # repository and organisation data in the org graph, so a read that used
+    # the wrong one would report "no evidence" for an entity it just found.
+    graph_name: str = ""
 
     @property
     def is_code(self) -> bool:
@@ -264,6 +268,7 @@ class ResolvedEntity:
             label=row["label"],
             name=row["name"],
             quality=int(row.get("quality", 2)),
+            graph_name=row.get("graph_name", ""),
         )
 
 

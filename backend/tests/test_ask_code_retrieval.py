@@ -121,7 +121,7 @@ def test_history_on_a_symbol_resolves_through_its_file():
 
     assert package is not None
     assert package["intent"] == "commit_history"
-    gateway.get_symbol_file.assert_called_once_with("CodeSymbol:Graph")
+    gateway.get_symbol_file.assert_called_once_with("CodeSymbol:Graph", graph_name="")
 
 
 def test_an_unresolvable_question_retrieves_nothing():
@@ -298,8 +298,10 @@ def test_a_symbol_with_no_exact_match_falls_back_to_near_matches():
     gateway.search_entities_by_terms.return_value = [
         hit("CodeSymbol", "open_payload", "open", quality=1)
     ]
-    gateway.get_code_symbol.side_effect = lambda name, file_id="", limit=6: (
-        [declaration("open_payload")] if name == "open_payload" else []
+    gateway.get_code_symbol.side_effect = (
+        lambda name, file_id="", limit=6, graph_name="": (
+            [declaration("open_payload")] if name == "open_payload" else []
+        )
     )
     gateway.search_code_symbols.return_value = [
         {"name": "open_payload", "id": "s1", "kind": "function", "container": "", "documented": True}

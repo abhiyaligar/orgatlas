@@ -50,22 +50,88 @@ class GraphGateway:
     def __init__(self, manager=graph_manager):
         self.manager = manager
 
-    def _execute(self, query: str, params: Optional[Dict[str, Any]] = None) -> List[Any]:
+    def _execute(
+        self,
+        query: str,
+        params: Optional[Dict[str, Any]] = None,
+        graph_name: str = "",
+    ) -> List[Any]:
         """Run a parameterized query and return raw rows.
+
+        ``graph_name`` selects which graph to read. Empty means the
+        organisation graph, which is where non-code entities live. Callers that
+        already know which graph an entity was resolved from pass it, so a
+        symbol read goes to the repository graph rather than to org.
 
         Failures propagate rather than collapsing into an empty result: an
         unreachable graph or a mistyped graph name is an operational fault, and
         reporting it as "no evidence found" would misdescribe it to the user.
         """
         try:
-            graph = self.manager.get_graph()
+            graph = self.manager.get_graph(graph_name)
             result = graph.query(query, params or {})
             return result.result_set
         except (GraphQueryError, OrgAtlasError):
             raise
         except Exception as e:
-            logger.error("FalkorDB query failed (%s...): %s", query[:60], str(e))
+            logger.error(
+                "FalkorDB query failed on %s (%s...): %s",
+                graph_name or "(org)",
+                query[:60],
+                str(e),
+            )
             raise GraphQueryError(f"Knowledge graph query failed: {str(e)}") from e
+
+    def search_entities_by_terms(
+        self, terms: Sequence[str], graph_names: Optional[Sequence[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """Resolve several candidate terms, across every graph a question may reach.
+
+        Ask latency is dominated by round trips, and a question can mention a
+        dozen words, so resolution is a single UNWIND per graph rather than a
+        lookup per term. Each row reports the term and the graph that produced
+        it, so the caller can send the follow-up retrieval to the same graph.
+
+        A graph that cannot be read is logged and skipped rather than failing
+        the question, because one unreachable repository should not stop an
+        answer the organisation graph can give. If every graph fails, that is an
+        operational fault and it propagates.
+        """
+        cleaned = _dedupe_terms(terms)
+        if not cleaned:
+            return []
+
+        targets = list(graph_names) if graph_names else self.manager.search_graphs()
+        found: List[Dict[str, Any]] = []
+        failures: List[str] = []
+        for name in targets:
+            try:
+                rows = self._execute(
+                    queries.SEARCH_ENTITIES_BY_TERMS,
+                    {"terms": cleaned, "limit": MAX_TERM_RESULTS},
+                    graph_name=name,
+                )
+            except Exception as exc:
+                logger.warning("term resolution skipped graph %s: %s", name, exc)
+                failures.append(name)
+                continue
+            for row in rows:
+                found.append(
+                    {
+                        "term": row[0],
+                        "id": row[1],
+                        "label": row[2],
+                        "name": row[3],
+                        "quality": row[4],
+                        "graph_name": name,
+                    }
+                )
+
+        if failures and len(failures) == len(targets):
+            raise GraphQueryError(
+                "No knowledge graph could be read: " + ", ".join(failures)
+            )
+        return found
 
     def get_onboarding_context(self, team_id: str) -> Optional[Dict[str, Any]]:
         rows = self._execute(queries.GET_ONBOARDING_TOPICS_BY_TEAM, {"team_id": team_id})
@@ -134,9 +200,13 @@ class GraphGateway:
 
     # --- Repository forensics -------------------------------------------------
 
-    def get_file_history(self, file_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_file_history(
+        self, file_id: str, limit: int = 50, graph_name: str = ""
+    ) -> List[Dict[str, Any]]:
         rows = self._execute(
-            queries.GET_FILE_HISTORY, {"file_id": file_id, "limit": clamp_limit(limit)}
+            queries.GET_FILE_HISTORY,
+            {"file_id": file_id, "limit": clamp_limit(limit)},
+            graph_name,
         )
         return [
             {
@@ -294,7 +364,7 @@ class GraphGateway:
     # --- Authored file descriptions -------------------------------------------
 
     def get_repository_files(
-        self, repository_id: str, per_language: int = 4
+        self, repository_id: str, per_language: int = 4, graph_name: str = ""
     ) -> List[Dict[str, Any]]:
         """Return a repository's languages, each with a few example files.
 
@@ -310,6 +380,7 @@ class GraphGateway:
         rows = self._execute(
             queries.GET_REPOSITORY_FILES,
             {"repository_id": repository_id, "per_language": per_language},
+            graph_name,
         )
         return [
             {
@@ -321,18 +392,24 @@ class GraphGateway:
         ]
 
     def get_repository_language_mix(
-        self, repository_id: str
+        self, repository_id: str, graph_name: str = ""
     ) -> List[Dict[str, Any]]:
         """Count the files a repository has in each language, tests excluded."""
         return [
             {"language": entry["language"], "files": entry["files"]}
-            for entry in self.get_repository_files(repository_id, per_language=0)
+            for entry in self.get_repository_files(
+                repository_id, per_language=0, graph_name=graph_name
+            )
             if entry["language"] and str(entry["language"]).lower() != "unknown"
         ]
 
-    def get_file_description(self, file_id: str) -> Optional[Dict[str, Any]]:
+    def get_file_description(
+        self, file_id: str, graph_name: str = ""
+    ) -> Optional[Dict[str, Any]]:
         """Return the description extracted from the file's own source text."""
-        rows = self._execute(queries.GET_FILE_DESCRIPTION, {"file_id": file_id})
+        rows = self._execute(
+            queries.GET_FILE_DESCRIPTION, {"file_id": file_id}, graph_name
+        )
         if not rows:
             return None
         row = rows[0]
@@ -373,12 +450,13 @@ class GraphGateway:
     # --- Code declarations ----------------------------------------------------
 
     def get_code_symbol(
-        self, name: str, file_id: str = "", limit: int = 10
+        self, name: str, file_id: str = "", limit: int = 10, graph_name: str = ""
     ) -> List[Dict[str, Any]]:
         """Look up declarations by name, most documented first."""
         rows = self._execute(
             queries.GET_CODE_SYMBOL,
             {"name": name, "file_id": file_id or "", "limit": clamp_limit(limit)},
+            graph_name,
         )
         return [
             {
@@ -398,10 +476,13 @@ class GraphGateway:
             for row in rows
         ]
 
-    def search_code_symbols(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+    def search_code_symbols(
+        self, query: str, limit: int = 20, graph_name: str = ""
+    ) -> List[Dict[str, Any]]:
         rows = self._execute(
             queries.SEARCH_CODE_SYMBOLS,
             {"query": query, "limit": clamp_limit(limit)},
+            graph_name,
         )
         return [
             {
@@ -715,7 +796,7 @@ class GraphGateway:
         ]
 
     def search_code_symbols_by_terms(
-        self, terms: Sequence[str], limit: int = 12
+        self, terms: Sequence[str], limit: int = 12, graph_name: str = ""
     ) -> List[Dict[str, Any]]:
         """Resolve candidate terms to declarations, with file and line attached."""
         cleaned = _dedupe_terms(terms)
@@ -725,6 +806,7 @@ class GraphGateway:
         rows = self._execute(
             queries.SEARCH_CODE_SYMBOLS_BY_TERMS,
             {"terms": cleaned, "limit": clamp_limit(limit)},
+            graph_name,
         )
         return [
             {
@@ -746,8 +828,12 @@ class GraphGateway:
             for row in rows
         ]
 
-    def get_symbol_file(self, symbol_id: str) -> Optional[Dict[str, Any]]:
-        rows = self._execute(queries.GET_SYMBOL_FILE, {"symbol_id": symbol_id})
+    def get_symbol_file(
+        self, symbol_id: str, graph_name: str = ""
+    ) -> Optional[Dict[str, Any]]:
+        rows = self._execute(
+            queries.GET_SYMBOL_FILE, {"symbol_id": symbol_id}, graph_name
+        )
         if not rows:
             return None
         row = rows[0]
