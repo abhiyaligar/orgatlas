@@ -104,7 +104,7 @@ is not recoverable by re-seeding.
 | Variable | Why |
 | --- | --- |
 | `MCP_API_TOKEN` | `/mcp` **does not mount** without it. Without a token the route returns 404 rather than serving an open context server. |
-| `MCP_ALLOWED_HOSTS` | With DNS-rebinding protection on and no allowed host, every request is refused as a rebinding attempt. |
+| `MCP_ALLOWED_HOSTS` | Which `Host` and `Origin` headers `/mcp` answers to. Required in production unless it is set to `*` |
 | `ENVIRONMENT=production` | Selects the strict mount behaviour. |
 | `CORS_ORIGINS` | The deployed client origin only. MCP is never included. |
 
@@ -201,7 +201,7 @@ several names are not self-explanatory.
 | `FALKORDB_USERNAME` | Graph username. |
 | `INGEST_CACHE_DIR` | Where scan payloads are written for inspection. Never read back. |
 | `INGEST_COMMIT_DEPTH` | How many commits of history to walk. Deeper costs sandbox time and graph size. |
-| `MCP_ALLOWED_HOSTS` | Host headers MCP answers to. Required in production. |
+| `MCP_ALLOWED_HOSTS` | Host headers MCP answers to, or `*` to answer any. Required in production. |
 | `MCP_API_TOKEN` | Bearer token for `/mcp`. Comma-separated to allow rotation. Secret. |
 | `NEBIUS_API_BASE_URL` | Provider base URL. |
 | `NEBIUS_API_KEY` | Answer synthesis, document extraction, and the file-description fallback. Secret. |
@@ -254,6 +254,31 @@ service. See [SLACK.md](SLACK.md).
 Without `SLACK_ALLOWED_CHANNELS` the bot stays silent in every channel. That is
 the default, deliberately: a bot that has merely been invited to a workspace must
 not start answering in it.
+
+## What `MCP_ALLOWED_HOSTS` can be
+
+| Value | Behaviour |
+| --- | --- |
+| a hostname | Only that `Host` is answered to, and its `https://` origin |
+| a comma or semicolon separated list | All of them |
+| `*` | **Any** `Host` or `Origin` is answered to; the header check is switched off entirely |
+| unset or blank | Nothing is answered to. Every request is refused as a rebinding attempt |
+
+`*` is the right choice when the bearer token is doing the real work and the
+server is only reachable at a hostname you control. The token is sent as an
+`Authorization` header by the client, so a page in a browser has no way to
+supply it, which is the attack DNS-rebinding protection exists to stop. In
+other words, with a token required, the header check is defence in depth.
+
+Two things it does **not** change:
+
+- The route still refuses to mount at all in production without
+  `MCP_API_TOKEN`. A wildcard relaxes the host check, never the token check.
+- Development keeps its own localhost allowlist regardless of this setting.
+
+A wildcard is logged loudly at startup, because after it is set the token is
+the only thing between the internet and a read-only view of your decision
+history, people and repository structure.
 
 ## Operational notes
 

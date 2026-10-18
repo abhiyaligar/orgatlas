@@ -18,7 +18,7 @@ from app.mcp.auth import (
     is_authorised,
     presented_token,
 )
-from app.mcp.server import MCP_MOUNT_PATH
+from app.mcp.server import MCP_MOUNT_PATH, _transport_security, mount_dev_only
 
 TOKEN = "test-token-abc123"
 JSONRPC_HEADERS = {"Accept": "application/json, text/event-stream"}
@@ -157,3 +157,76 @@ def test_every_mcp_method_is_guarded():
                 headers={**JSONRPC_HEADERS, "Authorization": "Bearer wrong"},
             )
             assert response.status_code == 401, f"{method} was reachable unauthenticated"
+
+class TestAllowedHostsWildcard:
+    """A wildcard has to be asked for; leaving the setting blank still refuses."""
+
+    @pytest.fixture(autouse=True)
+    def _production(self):
+        previous_env = settings.ENVIRONMENT
+        previous_hosts = settings.MCP_ALLOWED_HOSTS
+        settings.ENVIRONMENT = "production"
+        yield
+        settings.ENVIRONMENT = previous_env
+        settings.MCP_ALLOWED_HOSTS = previous_hosts
+
+    def test_a_blank_setting_still_refuses_everything(self):
+        settings.MCP_ALLOWED_HOSTS = ""
+
+        security = _transport_security(False)
+
+        assert security.enable_dns_rebinding_protection is True
+        assert list(security.allowed_hosts) == []
+
+    def test_a_named_host_is_answered_to(self):
+        settings.MCP_ALLOWED_HOSTS = "orgatlas-dev-api.onrender.com"
+
+        security = _transport_security(False)
+
+        assert list(security.allowed_hosts) == ["orgatlas-dev-api.onrender.com"]
+        assert "https://orgatlas-dev-api.onrender.com" in list(security.allowed_origins)
+
+    def test_several_hosts_are_all_answered_to(self):
+        settings.MCP_ALLOWED_HOSTS = "a.example.com, b.example.com; c.example.com"
+
+        security = _transport_security(False)
+
+        assert list(security.allowed_hosts) == [
+            "a.example.com",
+            "b.example.com",
+            "c.example.com",
+        ]
+
+    def test_a_wildcard_answers_any_host(self):
+        settings.MCP_ALLOWED_HOSTS = "*"
+
+        security = _transport_security(False)
+
+        assert security.enable_dns_rebinding_protection is False
+
+    def test_a_wildcard_among_hosts_still_means_a_wildcard(self):
+        settings.MCP_ALLOWED_HOSTS = "a.example.com, *"
+
+        security = _transport_security(False)
+
+        assert security.enable_dns_rebinding_protection is False
+
+    def test_development_keeps_its_localhost_allowlist(self):
+        settings.MCP_ALLOWED_HOSTS = "*"
+
+        security = _transport_security(True)
+
+        assert security.enable_dns_rebinding_protection is True
+        assert "localhost" in list(security.allowed_hosts)
+
+    def test_the_route_still_refuses_to_mount_without_a_token(self):
+        """A wildcard relaxes the host check; it must not relax the token check."""
+        settings.MCP_ALLOWED_HOSTS = "*"
+        previous = settings.MCP_API_TOKEN
+        settings.MCP_API_TOKEN = ""
+        try:
+            from fastapi import FastAPI
+
+            assert mount_dev_only(FastAPI()) is False
+        finally:
+            settings.MCP_API_TOKEN = previous

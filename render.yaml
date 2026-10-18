@@ -84,8 +84,9 @@ services:
       - key: MCP_API_TOKEN
         generateValue: true
       - key: MCP_ALLOWED_HOSTS
-        # The published API hostname, with no scheme. With this empty and DNS
-        # protection on, every MCP request is refused as a rebinding attempt.
+        # The published API hostname with no scheme, or "*" to answer any Host
+        # and rely on the bearer token alone. Blank refuses every MCP request
+        # as a rebinding attempt, so this cannot simply be left unset.
         sync: false
       # --- Repository ingestion (E2B) -----------------------------------
       - key: E2B_API_KEY

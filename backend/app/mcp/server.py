@@ -84,10 +84,25 @@ def _transport_security(is_development: bool) -> TransportSecuritySettings:
         for host in (settings.MCP_ALLOWED_HOSTS or "").replace(";", ",").split(",")
         if host.strip()
     ]
+
+    # An explicit "*" means any Host and Origin is answered to, which is the
+    # right call when the server is reachable only at a known hostname and the
+    # bearer token is doing the real work. It is a deliberate spelling, not a
+    # consequence of leaving the setting blank: blank refuses everything, so a
+    # wildcard has to be asked for.
+    if any(host == "*" for host in hosts):
+        logger.warning(
+            "MCP_ALLOWED_HOSTS is '*': Host and Origin headers are not checked. "
+            "The bearer token is the only thing protecting this route, so treat "
+            "MCP_API_TOKEN as a secret worth rotating."
+        )
+        return TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
     if not hosts:
         logger.warning(
             "MCP_ALLOWED_HOSTS is empty: every MCP request will be refused as a "
-            "DNS-rebinding attempt. Set it to the host MCP is published at."
+            "DNS-rebinding attempt. Set it to the host MCP is published at, or "
+            "to '*' to answer any Host and rely on the bearer token alone."
         )
     return TransportSecuritySettings(
         enable_dns_rebinding_protection=True,

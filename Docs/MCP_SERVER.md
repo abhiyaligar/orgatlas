@@ -88,7 +88,7 @@ A tool whose answer *is* a declaration carries that detail on its entities — s
 - `MCPServer.streamable_http_app()` already routes `/mcp` internally, so it is mounted at the host root and requests for `/mcp` fall through to it. Mounting it *under* `/mcp` would produce `/mcp/mcp`.
 - Starlette does not forward lifespan events to mounted applications, so the MCP session-manager lifespan is composed into the host application's lifespan.
 - DNS-rebinding protection is always on. In development the loopback hosts and origins are allowed;
-  in production the host comes from `MCP_ALLOWED_HOSTS`, and an empty value refuses every request.
+  in production the host comes from `MCP_ALLOWED_HOSTS`, an empty value refuses every request, and `*` answers any host.
 - All eleven tools declare `readOnlyHint` with `destructiveHint` false, and each description carries the advisory-not-approval disclosure.
 - Declaration data comes from the ingestion sandbox's tree-sitter pass. The MCP surface reads it only; it never parses source or calls a provider.
 
