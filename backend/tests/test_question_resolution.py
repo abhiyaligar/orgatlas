@@ -304,39 +304,39 @@ def _pair_score(route) -> int:
     return int(re.search(r"score (-?\d+)", route.reason).group(1))
 
 
-def test_a_prefix_of_a_real_name_still_routes():
-    """"Where is the Auth class?" should reach AuthService, not bounce."""
+def test_a_fragment_of_a_longer_name_does_not_route():
+    """"rate" inside "Rate limit one-time passcode sends" is not naming it.
+
+    Asked "what is our churn rate" this answered with the commit history of an
+    OTP function, which was confidently wrong rather than merely thin.
+    """
     route = choose_route(
-        "Auth class?",
+        "what is our churn rate",
+        [
+            entity("Decision", "Rate limit one-time passcode sends", term="rate", quality=1),
+            entity("Incident", "Stale exchange rates served wrong quotes", term="rate", quality=1),
+        ],
+    )
+
+    assert route is None
+
+
+def test_churn_is_not_a_history_signal_on_its_own():
+    """It reads as a business metric far more often than as code churn."""
+    signals = score_signals("What is our churn rate?")
+
+    assert INTENT_HISTORY not in signals
+
+
+def test_a_prefix_is_still_fine_when_the_question_says_what_it_means():
+    """"the Auth class" reaches AuthService because of "class", not the prefix."""
+    route = choose_route(
+        "Where is the Auth class?",
         [entity("CodeSymbol", "AuthService", term="Auth", quality=1)],
     )
 
     assert route is not None
     assert route.entity.name == "AuthService"
-
-
-def test_a_prefix_match_scores_below_an_exact_one():
-    exact = choose_route(
-        "x",
-        [entity("CodeSymbol", "AuthService", term="AuthService", quality=0)],
-    )
-    prefix = choose_route(
-        "x",
-        [entity("CodeSymbol", "AuthService", term="Auth", quality=1)],
-    )
-
-    assert exact is not None and prefix is not None
-    assert _pair_score(exact) > _pair_score(prefix)
-
-
-def test_a_name_merely_containing_the_term_routes_to_nothing():
-    """Naming half a word from the middle is not naming the thing."""
-    route = choose_route(
-        "auth auth auth",
-        [entity("CodeSymbol", "send_auth_otp", term="auth", quality=2)],
-    )
-
-    assert route is None
 
 
 def test_an_aggregate_question_is_not_answered_by_a_similarly_named_node():

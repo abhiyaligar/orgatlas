@@ -136,7 +136,6 @@ INTENT_PHRASES: Dict[str, Tuple[str, ...]] = {
         "recently changed",
         "changed recently",
         "how often",
-        "churn",
         "commit",
         "commits",
         "last modified",
@@ -175,7 +174,7 @@ INTENT_PHRASES: Dict[str, Tuple[str, ...]] = {
 
 # A signal this strong means the question is about history regardless of label,
 # because "what changed in X" is a history question whatever X is.
-_HISTORY_OVERRIDE = ("changed recently", "recently changed", "how often", "churn", "who changed")
+_HISTORY_OVERRIDE = ("changed recently", "recently changed", "how often", "who changed")
 
 _QUESTION_WORDS = frozenset(
     """
@@ -539,10 +538,14 @@ def _score_pair(
         # phrase outranks it, and a weak or incidental name match still fails.
         if _is_aggregate_question(question):
             return -1
+        # Only a name the question used verbatim. A fragment of a longer name is
+        # not naming the thing: "what is our churn rate" contains "rate", which
+        # prefixes "Rate limit one-time passcode sends" and "Stale exchange
+        # rates", and answering it with either was answering a different
+        # question. A question that genuinely means a prefix says so in its
+        # words -- "where is the Auth class" carries "class", and routes on it.
         if strength >= _EXACT_MATCH_STRENGTH:
             return _EXACT_NAME_ONLY_SCORE
-        if strength >= _PREFIX_MATCH_STRENGTH:
-            return _PREFIX_NAME_ONLY_SCORE
         return -1
 
     score = supported * _LABEL_FIT
