@@ -112,12 +112,12 @@ response shapes. Keep the two in step when you change either.
 
 ## MCP server
 
-Bearer-authenticated, mounted at `/mcp`. Eleven tools read. Two ingest, and
+Bearer-authenticated, mounted at `/mcp`. Thirteen tools read. Two ingest, and
 they need a second, separate token.
 
 | Tools | Resources | Prompts |
 | --- | --- | --- |
-| 11 read, 2 write | 4 templates | 3 |
+| 13 read, 2 write | 4 templates | 3 |
 
 ```
 assess_change_impact          get_repo_dependency_impact
@@ -125,6 +125,8 @@ assess_file_risk              search_architecture_evidence
 describe_file                 trace_change_origin
 describe_symbol               trace_technical_decision
 find_owner_and_expertise      ingest_repository
+get_architecture_context      read_file_range
+read_symbol_source
 get_architecture_context      get_ingest_job
 get_onboarding_context
 ```
@@ -146,6 +148,8 @@ the route **does not mount at all** without a token, so a missing token is a
 `404`, not an open server. `MCP_ALLOWED_HOSTS` decides which `Host` headers are
 answered to; blank refuses everything and `*` answers any, leaving the bearer
 token as the only gate. `Docs/MCP_SERVER.md` has the detail.
+`Docs/SOURCE_BODIES.md` covers file bodies: what storage holds, the credential
+boundary, and the bounds a retrieval call respects.
 
 To use it from opencode:
 

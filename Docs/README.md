@@ -45,7 +45,8 @@ them return the same evidence for the same question.
 | Surface | Who it is for | Auth | Notes |
 | --- | --- | --- | --- |
 | [HTTP API](API_CONTRACT.md) | The browser, scripts | None yet | `/api/ask`, repository forensics, document upload |
-| [MCP server](MCP_SERVER.md) | Coding agents | Development-only route | 11 read-only tools; the cheapest path for an agent |
+| [Source bodies](SOURCE_BODIES.md) | Agents | Object storage | Optional; graph stays complete without it |
+| [MCP server](MCP_SERVER.md) | Coding agents | Development-only route | 13 read-only tools; the cheapest path for an agent |
 | [Documents](DOCUMENTS.md) | Ingesting PDFs, markdown and CSV; verified extraction; decision evidence | A document format, extraction rule, or graph relationship changes |
 | [Slack bot](SLACK.md) | People in a channel, agents that only have Slack | Slack tokens | Answers on mention; silent elsewhere |
 | Frontend | A person exploring | None | Onboarding, Ask, Repositories, Graph |

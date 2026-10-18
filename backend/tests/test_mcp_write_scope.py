@@ -124,6 +124,12 @@ class TestToolAnnotations:
         assert tools["ingest_repository"].annotations.destructive_hint is True
 
     def test_the_original_eleven_are_still_read_only(self):
+        """Thirteen read now, but the original eleven must stay read-only.
+
+        The two source tools were added later and read from object storage
+        rather than the graph. Adding reads must not quietly widen the write
+        boundary, so this still checks the original set explicitly.
+        """
         tools = {t.name: t for t in create_server()._tool_manager.list_tools()}
 
         read_only = [
@@ -131,7 +137,7 @@ class TestToolAnnotations:
             if tool.annotations.read_only_hint and name
             not in {"ingest_repository", "get_ingest_job"}
         ]
-        assert len(read_only) == 11
+        assert len(read_only) == 13
 
     def test_the_annotation_constants_say_what_they_are(self):
         assert READ_ONLY.read_only_hint is True

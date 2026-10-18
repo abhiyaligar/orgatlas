@@ -97,6 +97,20 @@ services:
       # given one without being able to change the graph.
       - key: MCP_WRITE_API_TOKEN
         generateValue: true
+      # --- Source bodies ---------------------------------------------------
+      # Supabase's S3-compatible endpoint. sync:false because the project ref
+      # and the bucket name are specific to this deployment. The keys are
+      # secrets and are set in the dashboard, never generated here.
+      - key: SUPABASE_S3_ENDPOINT
+        sync: false
+      - key: SUPABASE_S3_ACCESS_KEY_ID
+        sync: false
+      - key: SUPABASE_S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: SUPABASE_S3_REGION
+        value: "ap-south-1"
+      - key: SOURCE_BUCKET
+        value: "Orgatlas"
       - key: MCP_ALLOWED_HOSTS
         # The published API hostname with no scheme, or "*" to answer any Host
         # and rely on the bearer token alone. Blank refuses every MCP request

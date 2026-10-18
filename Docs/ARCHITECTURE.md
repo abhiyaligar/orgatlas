@@ -91,7 +91,7 @@ Every stored description is attributable. `docs_source` records whether the text
 - Permit browser access only to the API's public, documented endpoints.
 - Use parameterised graph queries and an allowlist of retrieval tools.
 - Keep the MCP surface least-privileged and separately authenticated from the
-  browser demo: eleven tools read under either token, two write under the write
+  browser demo: thirteen tools read under either token, two write under the write
   token only (ADR-013).
 - Give the ingestion sandbox no credential of any kind.
 - Log request metadata and failures; never log secrets.

@@ -1,6 +1,13 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, String, Text
+from sqlalchemy import (
+    Column,
+    DateTime,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from app.db.base import Base
 
 
@@ -169,3 +176,37 @@ class DocumentIngestJob(Base):
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     completed_at = Column(DateTime, nullable=True)
+
+class SourceBody(Base):
+    """Where the bytes behind a graph File node live.
+
+    The graph stores the address of a file body; object storage stores the body.
+    This row is that link, and the only place it exists.
+
+    Content is addressed by digest, so identical bytes across commits or
+    repositories are stored once and pointed at many times. The unique key is
+    the revision -- repository, path and commit -- so re-ingesting the same
+    commit updates one row instead of accumulating history.
+
+    Nothing here is authoritative. A retrieval tool resolves the graph address
+    first and consults this table second, which is why a missing blob is a
+    reportable fact rather than a dangling reference.
+    """
+
+    __tablename__ = "source_bodies"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    file_id = Column(String(1000), nullable=False, index=True)
+    repository_id = Column(String(200), nullable=False)
+    path = Column(String(1000), nullable=False)
+    commit_sha = Column(String(64), nullable=False)
+    content_sha256 = Column(String(64), nullable=False, index=True)
+    storage_key = Column(String(300), nullable=False)
+    byte_size = Column(Integer, nullable=False, default=0, server_default="0")
+    stored_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "repository_id", "path", "commit_sha", name="uq_source_bodies_revision"
+        ),
+    )

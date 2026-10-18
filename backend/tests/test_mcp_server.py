@@ -92,7 +92,7 @@ class TestEnvelope:
 
 
 class TestSurface:
-    def test_exposes_the_eleven_read_tools_and_the_two_write_tools(self, server):
+    def test_exposes_the_thirteen_read_tools_and_the_two_write_tools(self, server):
         assert {t.name for t in _list(server, "list_tools")} == {
             "get_architecture_context",
             "find_owner_and_expertise",
@@ -106,6 +106,8 @@ class TestSurface:
             "describe_file",
         "ingest_repository",
         "get_ingest_job",
+        "read_symbol_source",
+        "read_file_range",
             "describe_symbol",
         }
 
@@ -474,13 +476,13 @@ class TestHttpRoundTrip:
                 client, "resources/templates/list", headers
             )["resourceTemplates"]
 
-        assert len(tools) == 13
+        assert len(tools) == 15
         assert len(prompts) == 3
         assert len(templates) == 4
         assert all(t["annotations"] for t in tools)
         read_only = [t for t in tools if t["annotations"]["readOnlyHint"]]
         write = [t for t in tools if not t["annotations"]["readOnlyHint"]]
-        assert len(read_only) == 11
+        assert len(read_only) == 13
         assert {t["name"] for t in write} == WRITE_TOOLS
 
     def test_browser_api_still_served_alongside_mcp(self):

@@ -294,6 +294,70 @@ def describe_files(repo_path: str, file_records: list) -> tuple[str, int, int, i
     return sha, described, needing_model, symbols_found if symbols_available else -1
 
 
+def collect_source_texts(
+    repo_path: str, file_records: list, max_total_bytes: int = 8 * 1024 * 1024
+) -> dict:
+    """Collect the text of every stored-eligible file, for the API to upload.
+
+    This is the one place that already holds every file's bytes, so shipping the
+    source costs a second read rather than a second clone. The sandbox never
+    receives a storage credential and never talks to object storage itself; it
+    returns content and the API uploads it.
+
+    Bounds are applied in path order so a given clone always yields the same
+    selection, and the running total stops at the first file that would exceed
+    the budget -- the remainder are counted and reported rather than silently
+    dropped, so a partial store is always distinguishable from a whole one.
+
+    Files the scanner already declined to read (too large, or not decodable)
+    are not retried here: the same refusal applies to storage.
+    """
+    root = Path(repo_path)
+    sha = head_sha(repo_path)
+    kept: list[dict] = []
+    reasons: dict[str, int] = {}
+    used = 0
+
+    for record in sorted(file_records, key=lambda entry: entry["path"]):
+        if record.get("docs_source", "").startswith("skipped"):
+            reason = record["docs_source"]
+            reasons[reason] = reasons.get(reason, 0) + 1
+            continue
+
+        path = record["path"]
+        full_path = root / path
+        try:
+            if not full_path.is_file():
+                reasons["missing_at_scan"] = reasons.get("missing_at_scan", 0) + 1
+                continue
+            size = full_path.stat().st_size
+            if size > MAX_DESCRIBE_BYTES:
+                reasons["too_large"] = reasons.get("too_large", 0) + 1
+                continue
+            text = full_path.read_text(encoding="utf-8", errors="strict")
+        except (OSError, ValueError, UnicodeDecodeError):
+            reasons["unreadable"] = reasons.get("unreadable", 0) + 1
+            continue
+
+        encoded_size = len(text.encode("utf-8"))
+        if used + encoded_size > max_total_bytes:
+            reasons["over_budget"] = reasons.get("over_budget", 0) + 1
+            continue
+
+        used += encoded_size
+        kept.append({"path": path, "text": text})
+
+    logger.info(
+        "source collection: %d file(s), %d byte(s) at %s", len(kept), used, sha
+    )
+    return {
+        "commit_sha": sha,
+        "files": kept,
+        "bytes": used,
+        "skipped": reasons,
+    }
+
+
 def encode_filter_config(config: dict | None) -> str | None:
     """Base64-encode the subset of a repository entry the scanner needs.
 
@@ -389,6 +453,15 @@ def scan_repository(repo_path: str, url: str, depth: int, config: dict | None = 
         collect_codeowners_paths(manifests["CODEOWNERS"]) if "CODEOWNERS" in manifests else []
     )
 
+    # Shipped so the API can store the bodies. The sandbox has no storage
+    # credential and never speaks to object storage; it returns the text it
+    # already read and the API uploads it.
+    source = collect_source_texts(
+        repo_path,
+        file_records,
+        max_total_bytes=int(os.environ.get("ORGATLAS_SOURCE_MAX_BYTES", 8 * 1024 * 1024)),
+    )
+
     return {
         "repository_url": url,
         "commit_depth": depth,
@@ -403,6 +476,7 @@ def scan_repository(repo_path: str, url: str, depth: int, config: dict | None = 
         },
         "commits": commit_records,
         "files": file_records,
+        "source": source,
         "authors": [
             {"name": name, "email": email} for name, email in collect_authors(commits)
         ],

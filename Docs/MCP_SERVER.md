@@ -72,7 +72,7 @@ A tool whose answer *is* a declaration carries that detail on its entities — s
 
 ## Safety and authorization requirements
 
-- Eleven tools are read-only. The two ingest tools are not, and they say so:
+- Thirteen tools are read-only. The two ingest tools are not, and they say so:
   `readOnlyHint: false` and `destructiveHint: true`.
 - The destructive hint means the change is irreversible, not that anything is
   deleted. Once an ingest lands, every answer drawn from that repository
@@ -100,14 +100,14 @@ A tool whose answer *is* a declaration carries that detail on its entities — s
 - Starlette does not forward lifespan events to mounted applications, so the MCP session-manager lifespan is composed into the host application's lifespan.
 - DNS-rebinding protection is always on. In development the loopback hosts and origins are allowed;
   in production the host comes from `MCP_ALLOWED_HOSTS`, an empty value refuses every request, and `*` answers any host.
-- All eleven tools declare `readOnlyHint` with `destructiveHint` false, and each description carries the advisory-not-approval disclosure.
+- All thirteen tools declare `readOnlyHint` with `destructiveHint` false, and each description carries the advisory-not-approval disclosure.
 - Declaration data comes from the ingestion sandbox's tree-sitter pass. The MCP surface reads it only; it never parses source or calls a provider.
 
 ## Current surface
 
 | Tools | Resources | Prompts |
 | --- | --- | --- |
-| 11 read, 2 write | 4 templates | 3 |
+| 13 read, 2 write | 4 templates | 3 |
 
 Verified over real JSON-RPC: `initialize`, `tools/list`, `prompts/list`, and
 `resources/templates/list` all answer, and the browser API continues to serve alongside the mounted
@@ -189,7 +189,7 @@ failure but a confusing one, so startup warns about it.
   app, so a method added to the server later is guarded without anyone
   remembering to add it.
 - **Read-only by token, not by hope.** Authentication gates *who* may ask. The
-  eleven retrieval tools stay read-only under either token; `ingest_repository`
+  thirteen retrieval tools stay read-only under either token; `ingest_repository`
   and `get_ingest_job` need the write token.
 
 ### What it is not

@@ -530,6 +530,26 @@ def ingest_repository(
     summary["identities_resolved"] = _identity_count(result.payload)
 
     summary["graph_name"] = graph_name
+
+    # The bodies a scan returned go to object storage, with pointers in the
+    # database. This is deliberately after the graph write: a complete graph is
+    # worth more than a failed ingest over a blob, so storage degrades on its own
+    # and says what it could not store.
+    try:
+        from app.services.source_body_service import store_scan_sources
+
+        emit("storing file bodies")
+        source_summary = store_scan_sources(
+            result.payload,
+            repository_id,
+            commit_sha=result.payload.get("described_at_sha") or "",
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Source storage step failed and was skipped: %s", exc)
+        source_summary = {"stored": 0, "bytes": 0, "skipped": {"error": 1}, "enabled": False}
+
+    summary["source_bodies"] = source_summary
+
     summary["descriptions"] = run_fallback(
         result.payload,
         repository_id,

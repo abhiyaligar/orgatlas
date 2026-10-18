@@ -94,6 +94,40 @@ class Settings(BaseSettings):
     # DNS-rebinding attempt. Comma-separated; `host:*` allows any port.
     MCP_ALLOWED_HOSTS: str = ""
 
+    # --- Source bodies (optional) --------------------------------------------
+    # File contents live in object storage; the graph keeps pointers to them, not
+    # the bytes. A graph is the wrong place for a 200KB source file: it is read
+    # far more often than it is written, and copying it into every answer is
+    # exactly the token burn this is meant to remove.
+    #
+    # The ingestion sandbox never receives these. It has no credential of any
+    # kind by design (see Docs/ARCHITECTURE.md), so the API uploads what the
+    # scan returns. Both values absent leaves source storage switched off, and
+    # every retrieval tool then reports that rather than failing obscurely.
+    # Supabase's S3-compatible endpoint, which is what the access key pair
+    # authenticates against. The Storage REST API takes a service_role key
+    # instead; these credentials are not that, so they are named for what they
+    # are rather than borrowing the wrong label.
+    #
+    # The access key pair stays server-side. It is never sent to a browser or to
+    # the ingestion sandbox.
+    SUPABASE_S3_ENDPOINT: Optional[str] = None
+    SUPABASE_S3_ACCESS_KEY_ID: Optional[str] = None
+    SUPABASE_S3_SECRET_ACCESS_KEY: Optional[str] = None
+    SUPABASE_S3_REGION: str = "ap-south-1"
+    SOURCE_BUCKET: str = "Orgatlas"
+    # A single file larger than this is not stored, and the gap is reported
+    # rather than silently skipped. Matches the ceiling ingest already applies
+    # when it reads a file to describe it.
+    SOURCE_MAX_FILE_BYTES: int = 256 * 1024
+    # Ceiling on what one ingest ships out of the sandbox. A repository large
+    # enough to exceed it stores what fits and says what it dropped, so a big
+    # clone cannot balloon into a multi-megabyte payload.
+    SOURCE_MAX_INGEST_BYTES: int = 8 * 1024 * 1024
+    # Ceiling on what one retrieval call returns. An agent asking for a whole
+    # large file gets a bounded excerpt and is told it was bounded.
+    SOURCE_MAX_RETURN_BYTES: int = 24 * 1024
+
     # --- Slack (optional) ---------------------------------------------------
     # Socket Mode is used rather than an Events API webhook because it opens an
     # outbound connection. A developer can therefore run the bot from a laptop
