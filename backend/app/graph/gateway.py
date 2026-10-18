@@ -768,33 +768,6 @@ class GraphGateway:
         rows = self._execute(queries.FIND_RELATED_DECISIONS, {"node_id": node_id})
         return [{"id": row[0], "title": row[1], "via": row[2]} for row in rows]
 
-    def search_entities_by_terms(self, terms: Sequence[str]) -> List[Dict[str, Any]]:
-        """Resolve several candidate terms in one query.
-
-        Ask latency is dominated by round trips, and a question can mention a
-        dozen words, so resolution is a single UNWIND rather than a lookup per
-        term. Each row reports the term that produced it so the caller can
-        attribute a match back to the question.
-        """
-        cleaned = _dedupe_terms(terms)
-        if not cleaned:
-            return []
-
-        rows = self._execute(
-            queries.SEARCH_ENTITIES_BY_TERMS,
-            {"terms": cleaned, "limit": MAX_TERM_RESULTS},
-        )
-        return [
-            {
-                "term": row[0],
-                "id": row[1],
-                "label": row[2],
-                "name": row[3],
-                "quality": row[4],
-            }
-            for row in rows
-        ]
-
     def search_code_symbols_by_terms(
         self, terms: Sequence[str], limit: int = 12, graph_name: str = ""
     ) -> List[Dict[str, Any]]:

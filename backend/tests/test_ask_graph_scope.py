@@ -155,3 +155,58 @@ def test_an_entity_with_no_graph_still_reads_the_org_graph(gateway):
     service.retrieve("What does legacy do?", None)
 
     assert gateway.get_code_symbol.call_args.kwargs["graph_name"] == ""
+
+def test_the_near_match_fallback_reads_the_same_graph(gateway):
+    """The fallback widens a search, it must not widen it to the wrong graph.
+
+    Resolution matches on a prefix, so an exact lookup can come back empty
+    while the declaration plainly exists. The fallback re-looks-up each near
+    match by name, and if that lookup does not carry the graph it reads the org
+    graph, finds no declarations, and reports no evidence for a symbol it had
+    already located.
+    """
+    seen_graphs = []
+
+    def _exact(name, file_id="", limit=6, graph_name=""):
+        seen_graphs.append(graph_name)
+        if name == "auth":
+            return []  # the exact lookup that makes the fallback necessary
+        return [
+            {
+                "id": "s1",
+                "name": name,
+                "kind": "class",
+                "signature": f"class {name}:",
+                "doc_comment": "",
+                "documented": False,
+                "container": "",
+                "file_id": "repo::a.py",
+                "language": "Python",
+                "line": 1,
+                "visibility": "public",
+                "changes_since_docs": 0,
+            }
+        ]
+
+    gateway.get_code_symbol.side_effect = _exact
+    gateway.search_code_symbols.return_value = [{"name": "AuthService", "id": "s1"}]
+    gateway.get_symbol_file.return_value = {
+        "file_id": "repo::a.py",
+        "path": "a.py",
+        "repository_id": "repo",
+        "language": "Python",
+        "is_test": False,
+    }
+
+    service = AskService(gateway=gateway)
+    service.resolve_question = lambda _q: (
+        Route(intent=INTENT_SYMBOL, entity=_entity()),
+        [_entity()],
+    )
+
+    service.retrieve("Which function handles auth?", None)
+
+    assert seen_graphs, "the fallback should have looked the name up again"
+    assert set(seen_graphs) == {"code_repo_a"}, (
+        f"every lookup must stay on the resolved graph, saw {seen_graphs}"
+    )

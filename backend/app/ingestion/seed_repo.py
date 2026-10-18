@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from app.core.config import settings
-from app.graph.connection import graph_manager
+from app.graph.connection import graph_manager, repository_graph_name
 from app.ingestion.git_history_parser import is_automation_author
 from app.ingestion.identity_resolver import external_identity_id
 from app.ingestion.sandbox_client import ScanRequest, run_scan
@@ -412,8 +412,15 @@ def build_batches(payload: dict[str, Any]) -> list[tuple[str, list[dict[str, Any
     return [(query, rows) for query, rows in plan if rows]
 
 
-def write_payload(payload: dict[str, Any], on_stage=None) -> dict[str, Any]:
-    """Apply a scan payload to the graph using batched writes."""
+def write_payload(
+    payload: dict[str, Any], on_stage=None, graph_name: str = ""
+) -> dict[str, Any]:
+    """Apply a scan payload to one graph using batched writes.
+
+    ``graph_name`` is the repository graph. Empty means the organisation graph,
+    which is what the seed scripts use, because they write teams, decisions and
+    documents rather than code.
+    """
 
     def stage(message: str) -> None:
         logger.info("[ingest] %s", message)
@@ -421,7 +428,7 @@ def write_payload(payload: dict[str, Any], on_stage=None) -> dict[str, Any]:
             on_stage(message)
 
     plan = build_batches(payload)
-    graph = graph_manager.get_or_create_graph()
+    graph = graph_manager.get_or_create_graph(graph_name)
 
     executed = 0
     rows_written = 0
@@ -497,6 +504,16 @@ def ingest_repository(
     result = run_scan(request, on_stage=emit)
     cache_payload(result.payload)
 
+    # The code lands in a graph belonging to this repository alone. It is
+    # created by the first write that touches it, so the indexes every read
+    # query assumes are applied first; otherwise a repository graph would exist
+    # with no index on the property being searched.
+    repository_id = repository_id_for(url)
+    graph_name = repository_graph_name(repository_id)
+    if graph_name not in graph_manager.list_graphs():
+        emit(f"creating graph {graph_name}")
+        graph_manager.ensure_schema(graph_name)
+
     estimate = estimate_calls(result.payload)
     # The declaration total is reported by the scanner on the payload itself;
     # estimate_calls only prices the model fallback.
@@ -508,16 +525,17 @@ def ingest_repository(
         f"{declaration_count} declarations extracted"
     )
 
-    summary = write_payload(result.payload, on_stage=emit)
+    summary = write_payload(result.payload, on_stage=emit, graph_name=graph_name)
     summary["sandbox_id"] = result.sandbox_id
     summary["identities_resolved"] = _identity_count(result.payload)
 
-    repository_id = repository_id_for(url)
+    summary["graph_name"] = graph_name
     summary["descriptions"] = run_fallback(
         result.payload,
         repository_id,
         dry_run=not run_model_fallback,
         on_stage=emit,
+        graph_name=graph_name,
     )
     emit(f"complete: {summary['files']} files, {summary['commits']} commits")
     return summary

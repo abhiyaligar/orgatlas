@@ -168,6 +168,7 @@ def _write_chunk(graph, chunk: List[Dict[str, Any]]) -> int:
 def run_fallback(
     payload: Dict[str, Any],
     repository_id: str,
+    graph_name: str = "",
     *,
     dry_run: bool = False,
     describe: Callable[..., Any] = describe_file,
@@ -242,7 +243,7 @@ def run_fallback(
         if index % 10 == 0 or index == estimate["gap_files"]:
             stage(f"described {described}/{estimate['gap_files']} (failed {failed})")
 
-    graph = graph_manager.get_or_create_graph()
+    graph = graph_manager.get_or_create_graph(graph_name)
     updated = 0
     for chunk in _chunks(rows):
         updated += _write_chunk(graph, chunk)
