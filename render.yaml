@@ -62,13 +62,20 @@ services:
       - key: FALKORDB_HOST
         sync: false
       - key: FALKORDB_PORT
-        value: "6379"
+        # Not 6379. A FalkorDB Cloud instance is published on its own port,
+        # shown next to the host in the dashboard. This one is 57184; if you
+        # create or recreate the instance, read it again rather than assuming.
+        value: "57184"
       - key: FALKORDB_USERNAME
         sync: false
       - key: FALKORDB_PASSWORD
         sync: false
       - key: FALKORDB_GRAPH_NAME
-        # Must not be the graph you use locally, or a scan here overwrites it.
+        # Deliberately the same graph you use locally, so the deployment shows
+        # the data you have already ingested. The cost is that a scan from
+        # Render and a scan from your machine write to the same graph. Switch
+        # this to the empty "orgatlas" graph if you would rather keep them
+        # apart, and seed that one on Render instead.
         value: orgatlas_dev
       # --- Inference ----------------------------------------------------
       - key: NEBIUS_API_KEY
