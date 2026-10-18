@@ -61,9 +61,9 @@ class ChangeForensicsService:
         self.gateway = gateway
         self.evidence = evidence or EvidenceService()
 
-    def file_timeline(self, file_id: str, limit: int = 50) -> Optional[Dict[str, Any]]:
+    def file_timeline(self, file_id: str, limit: int = 50, graph_name: str = "") -> Optional[Dict[str, Any]]:
         """Who changed a file, when, and through which pull request."""
-        history = self.gateway.get_file_history(file_id, limit=limit)
+        history = self.gateway.get_file_history(file_id, limit=limit, graph_name=graph_name)
         if not history:
             logger.info("No history found for file %s", file_id)
             return None
@@ -128,7 +128,7 @@ class ChangeForensicsService:
                 )
 
         contributors = self.gateway.get_path_contributors(
-            repository_id_for_path(file_id), path_prefix=file_id.split("::")[-1], limit=25
+            repository_id_for_path(file_id), path_prefix=file_id.split("::")[-1], limit=25, graph_name=graph_name
         )
 
         citations = [
@@ -154,10 +154,16 @@ class ChangeForensicsService:
         }
 
     def churn_ranking(
-        self, repository_id: str, path_prefix: str = "", limit: int = 25
+        self,
+        repository_id: str,
+        path_prefix: str = "",
+        limit: int = 25,
+        graph_name: str = "",
     ) -> Dict[str, Any]:
         """Which files change most, so a newcomer knows where the risk is."""
-        rows = self.gateway.get_file_churn(repository_id, path_prefix=path_prefix, limit=limit)
+        rows = self.gateway.get_file_churn(
+            repository_id, path_prefix=path_prefix, limit=limit, graph_name=graph_name
+        )
         return {
             "repository_id": repository_id,
             "path_prefix": path_prefix,
@@ -166,10 +172,11 @@ class ChangeForensicsService:
         }
 
     def changes_since(
-        self, repository_id: str, since: str, limit: int = 100
+        self, repository_id: str, since: str, limit: int = 100,
+        graph_name: str = ""
     ) -> Dict[str, Any]:
         """Files touched in a time window, for correlating with an incident."""
-        rows = self.gateway.get_files_changed_since(repository_id, since=since, limit=limit)
+        rows = self.gateway.get_files_changed_since(repository_id, since=since, limit=limit, graph_name=graph_name)
         return {
             "repository_id": repository_id,
             "since": since,
@@ -177,9 +184,9 @@ class ChangeForensicsService:
             "file_count": len(rows),
         }
 
-    def coupled_files(self, file_id: str, limit: int = 15) -> Dict[str, Any]:
+    def coupled_files(self, file_id: str, limit: int = 15, graph_name: str = "") -> Dict[str, Any]:
         """Files that historically change in the same commits as this one."""
-        rows = self.gateway.get_change_coupling(file_id, limit=limit)
+        rows = self.gateway.get_change_coupling(file_id, limit=limit, graph_name=graph_name)
         return {
             "file_id": file_id,
             "path": file_id.split("::")[-1],
@@ -193,18 +200,22 @@ class ChangeForensicsService:
         }
 
     def module_history(
-        self, repository_id: str, path_prefix: str, limit: int = 50
+        self,
+        repository_id: str,
+        path_prefix: str,
+        limit: int = 50,
+        graph_name: str = "",
     ) -> Dict[str, Any]:
         """Recent commits touching a module or directory."""
         commits = self.gateway.get_commits_for_path(
-            repository_id, path_prefix=path_prefix, limit=limit
+            repository_id, path_prefix=path_prefix, limit=limit, graph_name=graph_name
         )
         return {
             "repository_id": repository_id,
             "path_prefix": path_prefix,
             "commits": commits,
             "contributors": self.gateway.get_path_contributors(
-                repository_id, path_prefix=path_prefix, limit=15
+                repository_id, path_prefix=path_prefix, limit=15, graph_name=graph_name
             ),
         }
 
@@ -213,17 +224,20 @@ class ChangeForensicsService:
         repository_id: str,
         path_prefix: str = "",
         file_id: Optional[str] = None,
+        graph_name: str = "",
     ) -> Dict[str, Any]:
         """Assemble a starting brief for someone new to an area of the code.
 
         This is the "where do I start" entry point: volatile files, who owns
         the area, and what to read before editing.
         """
-        churn = self.churn_ranking(repository_id, path_prefix=path_prefix, limit=20)
+        churn = self.churn_ranking(repository_id, path_prefix=path_prefix, limit=20, graph_name=graph_name)
         contributors = self.gateway.get_path_contributors(
-            repository_id, path_prefix=path_prefix or "", limit=10
+            repository_id, path_prefix=path_prefix or "", limit=10, graph_name=graph_name
         )
-        dependencies = self.gateway.get_dependency_impact(repository_id, limit=25)
+        dependencies = self.gateway.get_dependency_impact(
+            repository_id, limit=25, graph_name=graph_name
+        )
 
         brief: Dict[str, Any] = {
             "repository_id": repository_id,
@@ -261,7 +275,7 @@ class ChangeForensicsService:
 
         brief["guidance"] = guidance
         return brief
-    def describe_file(self, file_id: str) -> Optional[Dict[str, Any]]:
+    def describe_file(self, file_id: str, graph_name: str = "") -> Optional[Dict[str, Any]]:
         """Describe a file from the documentation its authors wrote.
 
         The summary and symbols are read from the file's own source text at
@@ -269,7 +283,7 @@ class ChangeForensicsService:
         file has since changed in ingested history, rather than regenerating a
         description and presenting it as current.
         """
-        record = self.gateway.get_file_description(file_id)
+        record = self.gateway.get_file_description(file_id, graph_name=graph_name)
         if record is None:
             return None
 
@@ -312,7 +326,7 @@ class ChangeForensicsService:
             )
             return result
 
-        authored_at = self.gateway.get_commit_authored_at(docs_at_sha)
+        authored_at = self.gateway.get_commit_authored_at(docs_at_sha, graph_name=graph_name)
         if authored_at is None:
             result["stale"] = True
             result["staleness_reason"] = (
@@ -321,7 +335,7 @@ class ChangeForensicsService:
             )
             return result
 
-        changes = self.gateway.get_file_changes_after(file_id, authored_at)
+        changes = self.gateway.get_file_changes_after(file_id, authored_at, graph_name=graph_name)
         result["changes_since_docs"] = changes["changes"]
         result["recent_shas"] = changes["recent_shas"]
         if changes["changes"]:
@@ -338,7 +352,8 @@ class ChangeForensicsService:
             )
         return result
     def describe_symbol(
-        self, name: str, file_id: str = "", limit: int = 10
+        self, name: str, file_id: str = "", limit: int = 10,
+        graph_name: str = ""
     ) -> Dict[str, Any]:
         """Explain one declaration from the documentation its authors wrote.
 
@@ -346,7 +361,7 @@ class ChangeForensicsService:
         choosing one, because picking the wrong overload would be worse than
         reporting that the name is shared.
         """
-        matches = self.gateway.get_code_symbol(name, file_id=file_id, limit=limit)
+        matches = self.gateway.get_code_symbol(name, file_id=file_id, limit=limit, graph_name=graph_name)
 
         if not matches:
             return {
@@ -363,10 +378,12 @@ class ChangeForensicsService:
 
         results = []
         for match in matches:
-            owner = self.gateway.get_symbol_file(match["id"]) or {}
+            owner = self.gateway.get_symbol_file(match["id"], graph_name=graph_name) or {}
             file_history: Dict[str, Any] = {}
             if owner.get("file_id"):
-                file_history = self.file_timeline(owner["file_id"], limit=5) or {}
+                file_history = self.file_timeline(
+                    owner["file_id"], limit=5, graph_name=graph_name
+                ) or {}
 
             results.append(
                 {
@@ -385,7 +402,9 @@ class ChangeForensicsService:
                     "repository_id": owner.get("repository_id", ""),
                     "is_test": bool(owner.get("is_test")),
                     "changes_since_docs": self._file_changes_after(
-                        owner.get("file_id", ""), match["docs_at_sha"]
+                        owner.get("file_id", ""),
+                        match["docs_at_sha"],
+                        graph_name=graph_name,
                     ),
                     "recent_history": [
                         {
@@ -436,7 +455,7 @@ class ChangeForensicsService:
             "notes": notes,
         }
 
-    def _file_changes_after(self, file_id: str, docs_at_sha: str) -> int:
+    def _file_changes_after(self, file_id: str, docs_at_sha: str, graph_name: str = "") -> int:
         """How many ingested commits touched a file after it was scanned.
 
         Used to say whether a recorded line number might have moved. Returns 0
@@ -445,7 +464,7 @@ class ChangeForensicsService:
         """
         if not file_id or not docs_at_sha:
             return 0
-        authored_at = self.gateway.get_commit_authored_at(docs_at_sha)
+        authored_at = self.gateway.get_commit_authored_at(docs_at_sha, graph_name=graph_name)
         if authored_at is None:
             return 0
-        return self.gateway.get_file_changes_after(file_id, authored_at)["changes"]
+        return self.gateway.get_file_changes_after(file_id, authored_at, graph_name=graph_name)["changes"]

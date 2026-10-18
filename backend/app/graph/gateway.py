@@ -1,9 +1,9 @@
 import logging
 from typing import Any, Dict, List, Optional, Sequence
 
-from app.graph.connection import graph_manager
+from app.graph.connection import graph_manager, org_graph_name
 from app.graph import queries
-from app.core.errors import GraphQueryError, OrgAtlasError
+from app.core.errors import GraphNotFoundError, GraphQueryError, OrgAtlasError
 
 logger = logging.getLogger(__name__)
 
@@ -215,14 +215,18 @@ class GraphGateway:
                 "authored_at": row[2],
                 "pr_number": row[3],
                 "author_id": row[4],
-                "author": row[5],
+                # CommitSummary declares author as a non-null string, and a
+                # commit whose author was never captured would otherwise fail
+                # response validation and surface as a 500.
+                "author": row[5] or "",
             }
             for row in rows
             if not _is_automation(row[5])
         ]
 
     def get_file_churn(
-        self, repository_id: str, path_prefix: str = "", limit: int = 50
+        self, repository_id: str, path_prefix: str = "", limit: int = 50,
+    graph_name: str = ""
     ) -> List[Dict[str, Any]]:
         rows = self._execute(
             queries.GET_FILE_CHURN,
@@ -231,6 +235,7 @@ class GraphGateway:
                 "path_prefix": path_prefix or "",
                 "limit": clamp_limit(limit),
             },
+        graph_name=graph_name
         )
         return [
             {"file_id": row[0], "path": row[1], "is_test": row[2], "changes": row[3]}
@@ -238,16 +243,19 @@ class GraphGateway:
         ]
 
     def get_files_changed_since(
-        self, repository_id: str, since: str, limit: int = 100
+        self, repository_id: str, since: str, limit: int = 100,
+    graph_name: str = ""
     ) -> List[Dict[str, Any]]:
         rows = self._execute(
             queries.GET_FILES_CHANGED_SINCE,
             {"repository_id": repository_id, "since": since, "limit": clamp_limit(limit)},
+        graph_name=graph_name
         )
         return [{"file_id": row[0], "path": row[1], "changes": row[2]} for row in rows]
 
     def get_path_contributors(
-        self, repository_id: str, path_prefix: str, limit: int = 25
+        self, repository_id: str, path_prefix: str, limit: int = 25,
+    graph_name: str = ""
     ) -> List[Dict[str, Any]]:
         rows = self._execute(
             queries.GET_PATH_CONTRIBUTORS,
@@ -256,6 +264,7 @@ class GraphGateway:
                 "path_prefix": path_prefix,
                 "limit": clamp_limit(limit),
             },
+        graph_name=graph_name
         )
         return [
             {"author_id": row[0], "author": row[1], "commits": row[2]}
@@ -264,7 +273,8 @@ class GraphGateway:
         ]
 
     def get_commits_for_path(
-        self, repository_id: str, path_prefix: str, limit: int = 50
+        self, repository_id: str, path_prefix: str, limit: int = 50,
+    graph_name: str = ""
     ) -> List[Dict[str, Any]]:
         rows = self._execute(
             queries.GET_COMMITS_FOR_PATH,
@@ -273,6 +283,7 @@ class GraphGateway:
                 "path_prefix": path_prefix,
                 "limit": clamp_limit(limit),
             },
+        graph_name=graph_name
         )
         return [
             {
@@ -286,16 +297,22 @@ class GraphGateway:
         ]
 
     def get_dependency_impact(
-        self, repository_id: str, limit: int = 50
+        self, repository_id: str, limit: int = 50,
+    graph_name: str = ""
     ) -> List[Dict[str, Any]]:
         rows = self._execute(
             queries.GET_DEPENDENCY_IMPACT,
             {"repository_id": repository_id, "limit": clamp_limit(limit)},
+        graph_name=graph_name
         )
         return [{"id": row[0], "name": row[1], "url": row[2]} for row in rows]
 
-    def get_commit_detail(self, commit_id: str) -> Optional[Dict[str, Any]]:
-        rows = self._execute(queries.GET_COMMIT_DETAIL, {"commit_id": commit_id})
+    def get_commit_detail(
+        self, commit_id: str, graph_name: str = ""
+    ) -> Optional[Dict[str, Any]]:
+        rows = self._execute(
+            queries.GET_COMMIT_DETAIL, {"commit_id": commit_id}, graph_name=graph_name
+        )
         if not rows:
             return None
         row = rows[0]
@@ -310,22 +327,30 @@ class GraphGateway:
         }
 
     def get_change_coupling(
-        self, file_id: str, limit: int = 25
+        self, file_id: str, limit: int = 25,
+    graph_name: str = ""
     ) -> List[Dict[str, Any]]:
         rows = self._execute(
-            queries.GET_CHANGE_COUPLING, {"file_id": file_id, "limit": clamp_limit(limit)}
+            queries.GET_CHANGE_COUPLING, {"file_id": file_id, "limit": clamp_limit(limit)},
+        graph_name=graph_name
         )
         return [
             {"file_id": row[0], "path": row[1], "shared_commits": row[2]}
             for row in rows
         ]
 
-    def repository_exists(self, repository_id: str) -> bool:
-        rows = self._execute(queries.GET_REPOSITORY, {"repository_id": repository_id})
+    def repository_exists(self, repository_id: str, graph_name: str = "") -> bool:
+        rows = self._execute(
+            queries.GET_REPOSITORY, {"repository_id": repository_id}, graph_name=graph_name
+        )
         return bool(rows)
 
-    def list_repositories(self, limit: int = 50) -> List[Dict[str, Any]]:
-        rows = self._execute(queries.LIST_REPOSITORIES, {"limit": clamp_limit(limit)})
+    def list_repositories(self, limit: int = 50, graph_name: str = "") -> List[Dict[str, Any]]:
+        rows = self._execute(
+            queries.LIST_REPOSITORIES,
+            {"limit": clamp_limit(limit)},
+            graph_name=graph_name,
+        )
         return [
             {
                 "id": row[0],
@@ -334,9 +359,49 @@ class GraphGateway:
                 "source": row[3],
                 "commit_count": row[4],
                 "file_count": row[5],
+                "graph_name": graph_name,
             }
             for row in rows
         ]
+
+    def list_all_repositories(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Every ingested repository, wherever its code graph lives.
+
+        Each repository owns one graph named ``code_{repository_id}``, so the
+        organisation graph no longer knows they exist and a query against it
+        returns nothing. Reading them means visiting each graph, which is a
+        round trip per repository -- acceptable because this is a list page
+        with tens of entries at most, and an index in the org graph would be a
+        second copy to keep in step with the authoritative one.
+
+        The organisation graph is read too, and its entries win on a duplicate
+        id. That costs one extra query and means the endpoint is correct both
+        before and after an existing installation is split, rather than only on
+        a fresh one.
+        """
+        found: Dict[str, Dict[str, Any]] = {}
+        order: List[str] = []
+
+        for name in [org_graph_name()] + graph_manager.list_repository_graphs():
+            try:
+                rows = self.list_repositories(limit=limit, graph_name=name)
+            except GraphNotFoundError:
+                # A graph listed a moment ago can be gone; that is not a reason
+                # to fail the whole listing.
+                logger.warning("Skipping unavailable repository graph '%s'", name)
+                continue
+            except Exception:
+                # One unreadable repository must not blank the entire list. It
+                # is logged, so the omission is visible rather than silent.
+                logger.error("Failed to list repositories in graph '%s'", name, exc_info=True)
+                continue
+
+            for row in rows:
+                if row["id"] not in found:
+                    order.append(row["id"])
+                found[row["id"]] = row
+
+        return [found[rid] for rid in order]
 
     def get_entity_detail(self, entity_id: str) -> Optional[Dict[str, Any]]:
         rows = self._execute(queries.GET_ENTITY_DETAIL, {"entity_id": entity_id})
@@ -433,15 +498,16 @@ class GraphGateway:
             "docs_error": row[16],
         }
 
-    def get_commit_authored_at(self, sha: str) -> Optional[str]:
-        rows = self._execute(queries.GET_COMMIT_AUTHORED_AT, {"sha": sha})
+    def get_commit_authored_at(self, sha: str, graph_name: str = "") -> Optional[str]:
+        rows = self._execute(queries.GET_COMMIT_AUTHORED_AT, {"sha": sha}, graph_name=graph_name)
         if not rows or not rows[0]:
             return None
         return rows[0][0] or None
 
-    def get_file_changes_after(self, file_id: str, since: str) -> Dict[str, Any]:
+    def get_file_changes_after(self, file_id: str, since: str, graph_name: str = "") -> Dict[str, Any]:
         rows = self._execute(
-            queries.GET_FILE_CHANGES_AFTER, {"file_id": file_id, "since": since}
+            queries.GET_FILE_CHANGES_AFTER, {"file_id": file_id, "since": since},
+        graph_name=graph_name
         )
         if not rows:
             return {"changes": 0, "recent_shas": []}

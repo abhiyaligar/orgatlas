@@ -45,9 +45,13 @@ class CommitProvenanceService:
         self.gateway = gateway
         self.evidence = evidence or EvidenceService()
 
-    def _decisions(self, commit_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+    def _decisions(
+        self, commit_id: str, limit: int = 10, graph_name: str = ""
+    ) -> List[Dict[str, Any]]:
         rows = self.gateway._execute(
-            GET_COMMIT_DECISIONS, {"commit_id": commit_id, "limit": limit}
+            GET_COMMIT_DECISIONS,
+            {"commit_id": commit_id, "limit": limit},
+            graph_name=graph_name,
         )
         return [
             {"id": row[0], "title": row[1], "summary": row[2] or ""} for row in rows
@@ -63,9 +67,14 @@ class CommitProvenanceService:
             if row[0]
         ]
 
-    def trace(self, commit_id: str) -> Optional[Dict[str, Any]]:
-        """Trace one commit to its author, pull request, decisions and sources."""
-        commit = self.gateway.get_commit_detail(commit_id)
+    def trace(self, commit_id: str, graph_name: str = "") -> Optional[Dict[str, Any]]:
+        """Trace one commit to its author, pull request, decisions and sources.
+
+        ``graph_name`` names the repository graph holding the commit. A commit
+        id alone does not say which repository it came from, so the route either
+        resolves it first or searches the repository graphs for it.
+        """
+        commit = self.gateway.get_commit_detail(commit_id, graph_name=graph_name)
         if not commit:
             logger.info("Commit %s not found in the knowledge graph", commit_id)
             return None
@@ -126,7 +135,7 @@ class CommitProvenanceService:
             )
         )
 
-        decisions = self._decisions(commit["sha"])
+        decisions = self._decisions(commit["sha"], graph_name=graph_name)
         for decision in decisions:
             decision_node = build_graph_node(
                 {"id": decision["id"], "name": decision["title"]}, label="Decision"

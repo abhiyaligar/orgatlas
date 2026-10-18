@@ -8,9 +8,13 @@ from __future__ import annotations
 
 import logging
 
+from typing import Optional
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.errors import GraphNotFoundError
+from app.graph.connection import org_graph_name, repository_graph_name
 from app.api.schemas import (
     ChurnResponse,
     CommitSummary,
@@ -171,7 +175,7 @@ async def list_repositories():
     """List ingested repositories with their commit and file counts."""
     from app.graph.gateway import graph_gateway
 
-    rows = graph_gateway.list_repositories()
+    rows = graph_gateway.list_all_repositories()
     summaries = []
     for row in rows:
         summary = RepositorySummary(
@@ -191,37 +195,79 @@ _forensics = ChangeForensicsService()
 _provenance = CommitProvenanceService()
 
 
-def _require_repository(repository_id: str) -> None:
+def _repository_graph(repository_id: str) -> str:
+    """Resolve a repository to the graph that holds its code, or 404.
+
+    Ingestion writes a repository into its own graph named after its id, so the
+    organisation graph no longer holds the Repository node. Every
+    repository-scoped route resolves its graph here, once, and passes it down;
+    a lookup that silently defaulted to the org graph would return an empty
+    result rather than an error, which is the failure this whole split
+    introduced.
+    """
     from app.graph.gateway import graph_gateway
 
-    if not graph_gateway.repository_exists(repository_id):
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"Repository '{repository_id}' is not in the knowledge graph. "
-                "Ingest it first via POST /api/repos/ingest."
-            ),
-        )
+    org = org_graph_name()
+    for graph_name in (repository_graph_name(repository_id), org):
+        try:
+            if graph_gateway.repository_exists(repository_id, graph_name=graph_name):
+                return graph_name
+        except GraphNotFoundError:
+            # The repository has no graph yet. That is the expected answer for
+            # anything not yet ingested, not a fault to report as a 503.
+            continue
+
+    raise HTTPException(
+        status_code=404,
+        detail=(
+            f"Repository '{repository_id}' is not in the knowledge graph. "
+            "Ingest it first via POST /api/repos/ingest."
+        ),
+    )
 
 
 @router.get("/{repository_id}/brief", response_model=InvestigationBriefResponse)
 async def get_investigation_brief(repository_id: str, path_prefix: str = ""):
     """Where to start in an unfamiliar area: volatile files, owners, blast radius."""
-    _require_repository(repository_id)
-    return _forensics.investigation_brief(repository_id, path_prefix=path_prefix)
+    graph_name = _repository_graph(repository_id)
+    return _forensics.investigation_brief(
+        repository_id, path_prefix=path_prefix, graph_name=graph_name
+    )
 
 
 @router.get("/{repository_id}/churn", response_model=ChurnResponse)
 async def get_file_churn(repository_id: str, path_prefix: str = "", limit: int = 25):
     """Rank files by how often they change."""
-    _require_repository(repository_id)
-    return _forensics.churn_ranking(repository_id, path_prefix=path_prefix, limit=limit)
+    graph_name = _repository_graph(repository_id)
+    return _forensics.churn_ranking(
+        repository_id, path_prefix=path_prefix, limit=limit, graph_name=graph_name
+    )
+
+
+def _graph_for_file(file_id: str) -> str:
+    """Name the graph holding a file, derived from the file's own id.
+
+    A file id is ``{repository_id}::{path}``, so a caller holding one already
+    holds the repository id -- the graph name is a consequence, not another
+    parameter. A file id without that prefix cannot name a graph and is a 400,
+    because guessing the organisation graph here would return an empty result
+    rather than an error.
+    """
+    if "::" not in file_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"'{file_id}' is not a file id. Expected "
+                "'{repository_id}::{path}'."
+            ),
+        )
+    return repository_graph_name(file_id.split("::", 1)[0])
 
 
 @router.get("/file/timeline", response_model=FileTimelineResponse)
 async def get_file_timeline(file_id: str, limit: int = 50):
     """Who changed a file, when, and through which pull request."""
-    result = _forensics.file_timeline(file_id, limit=limit)
+    result = _forensics.file_timeline(file_id, limit=limit, graph_name=_graph_for_file(file_id))
     if result is None:
         raise HTTPException(
             status_code=404,
@@ -239,7 +285,7 @@ async def describe_file(file_id: str):
     declarations as they were at ingest time. The response says explicitly
     whether that description is still current.
     """
-    result = _forensics.describe_file(file_id)
+    result = _forensics.describe_file(file_id, graph_name=_graph_for_file(file_id))
     if result is None:
         raise HTTPException(
             status_code=404,
@@ -254,27 +300,56 @@ async def describe_file(file_id: str):
 @router.get("/file/coupling", response_model=CouplingResponse)
 async def get_file_coupling(file_id: str, limit: int = 15):
     """Files that historically change in the same commits as this one."""
-    return _forensics.coupled_files(file_id, limit=limit)
+    return _forensics.coupled_files(
+        file_id, limit=limit, graph_name=_graph_for_file(file_id)
+    )
 
 
 @router.get("/{repository_id}/commits", response_model=list[CommitSummary])
 async def get_module_commits(repository_id: str, path_prefix: str = "", limit: int = 50):
     """Recent commits touching a module or directory, or the whole repository."""
-    _require_repository(repository_id)
+    graph_name = _repository_graph(repository_id)
     return _forensics.module_history(
-        repository_id, path_prefix=path_prefix, limit=limit
+        repository_id, path_prefix=path_prefix, limit=limit, graph_name=graph_name
     )["commits"]
 
 
 @router.get("/commit/{commit_id}", response_model=ProvenanceResponse)
-async def get_commit_provenance(commit_id: str):
-    """Trace a commit to its author, pull request, decisions and sources."""
-    result = _provenance.trace(commit_id)
+async def get_commit_provenance(commit_id: str, repository_id: Optional[str] = None):
+    """Trace a commit to its author, pull request, decisions and sources.
+
+    A commit id does not identify its repository, and each repository now lives
+    in its own graph, so the graph has to come from somewhere. A caller that
+    knows its repository says so; otherwise the repository graphs are searched
+    in turn. That is a bounded fan-out over graphs this instance created, not a
+    scan of an unknown space.
+    """
+    graph_name = _repository_graph(repository_id) if repository_id else None
+    if graph_name is None:
+        graph_name = _find_commit_graph(commit_id)
+
+    result = _provenance.trace(commit_id, graph_name=graph_name or "")
     if result is None:
         raise HTTPException(
             status_code=404, detail=f"Commit '{commit_id}' is not in the knowledge graph."
         )
     return result
+
+
+def _find_commit_graph(commit_id: str) -> Optional[str]:
+    """Which repository graph holds this commit, if any."""
+    from app.graph.connection import graph_manager
+    from app.graph.gateway import graph_gateway
+
+    for name in graph_manager.list_repository_graphs():
+        try:
+            if graph_gateway.get_commit_detail(commit_id, graph_name=name):
+                return name
+        except Exception:
+            logger.error("Failed to search graph '%s' for commit", name, exc_info=True)
+    return None
+
+
 @router.get("/file/symbols/{name}", response_model=SymbolDescriptionResponse)
 async def describe_symbol(name: str, file_id: str = "", limit: int = 10):
     """Explain a declaration from the documentation its authors wrote.
@@ -282,4 +357,9 @@ async def describe_symbol(name: str, file_id: str = "", limit: int = 10):
     Returns every match when a name is shared, each with its container, so the
     caller can tell them apart instead of receiving a silently chosen one.
     """
-    return _forensics.describe_symbol(name, file_id=file_id, limit=limit)
+    return _forensics.describe_symbol(
+        name,
+        file_id=file_id,
+        limit=limit,
+        graph_name=_graph_for_file(file_id) if file_id else "",
+    )

@@ -367,7 +367,9 @@ class TestDescribeSymbol:
         result = ChangeForensicsService(gateway=gateway).describe_symbol("new")
 
         assert result["matches"][0]["changes_since_docs"] == 4
-        gateway.get_file_changes_after.assert_called_with("repo_x::src/f.rs", "2024-01-01T00:00:00Z")
+        gateway.get_file_changes_after.assert_called_with(
+            "repo_x::src/f.rs", "2024-01-01T00:00:00Z", graph_name=""
+        )
 
     def test_unknown_scan_point_reports_no_drift_evidence(self):
         gateway = self._gateway([self._match(docs_at_sha="")])
