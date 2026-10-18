@@ -74,6 +74,14 @@ A tool whose answer *is* a declaration carries that detail on its entities — s
 
 - Eleven tools are read-only. The two ingest tools are not, and they say so:
   `readOnlyHint: false` and `destructiveHint: true`.
+- The destructive hint means the change is irreversible, not that anything is
+  deleted. Once an ingest lands, every answer drawn from that repository
+  reflects it and the generated documentation of every file rescanned is
+  cleared. No later query takes that back.
+- What an ingest does **not** do is remove anything. Every node write is a
+  `MERGE` on a stable id, so re-ingesting updates rather than duplicates, and a
+  file deleted upstream since the last scan remains in the graph as a stale
+  node. There is no prune pass.
 - A write tool needs the **write** token. A read token is refused before the
   tool runs, so a read-only agent handed `MCP_API_TOKEN` cannot ingest.
 - No tool can write code, files, repositories, deployments, tickets, graph data, or external systems.

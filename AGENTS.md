@@ -130,10 +130,13 @@ get_onboarding_context
 ```
 
 The two ingest tools are annotated `readOnlyHint: false` and
-`destructiveHint: true`, because they are: an ingest replaces what the
-previous scan left for that repository. They enqueue a job and return an id
-rather than blocking, and the trigger is written to `audit_logs` with
-`caller_type = 'mcp_agent'` so it is distinguishable from a REST ingest.
+`destructiveHint: true`. The destructive hint is about irreversibility, not
+deletion: every answer drawn from that repository shifts once the ingest lands,
+and the generated documentation of every file rescanned is cleared. An ingest
+does **not** delete anything — see the limits below. Both tools enqueue a job
+and return an id rather than blocking, and the trigger is written to
+`audit_logs` with `caller_type = 'mcp_agent'` so it is distinguishable from a
+REST ingest.
 
 Authentication: `Authorization: Bearer <MCP_API_TOKEN>` for reads, or
 `<MCP_WRITE_API_TOKEN>` for reads *and* `ingest_repository`. A write token
@@ -194,9 +197,15 @@ State these plainly when answering, and never paper over them:
 
 - **No aggregate questions.** "How many teams own a service" is unsupported.
 - **No call graph.** The tool can say where something is declared, not who
-  calls it.
+calls it.
 - **No file bodies.** It knows `verify_auth_otp` exists at a line in a file, not
-  what is inside. That is why it cites rather than quotes source.
+what is inside. That is why it cites rather than quotes source.
+- **An ingest cannot remove anything.** Every write is a `MERGE` on a stable id,
+so re-ingesting the same repository updates what it revisits instead of
+duplicating it, and nothing is ever deleted. A file deleted upstream since the
+last scan therefore stays in the graph as a stale node, indistinguishable from a
+live one, and file counts, churn and blast radius grow to include it. There is
+no prune pass and no run marker to tell a stale node from a current one.
 - **Two kinds of graph.** Organisation context lives in `FALKORDB_GRAPH_NAME`.
   Each ingested repository gets `code_{repository_id}`, and a question is
   answered from the graph its subject actually resolved in.

@@ -113,7 +113,12 @@ class TestToolAnnotations:
         assert tools["get_ingest_job"].annotations.read_only_hint is False
 
     def test_the_write_tools_announce_that_they_are_destructive(self):
-        """An ingest replaces the previous scan of the same repository."""
+        """True because the change is not something a later query takes back.
+
+        Every answer drawn from that repository shifts once the ingest lands, and
+        the generated documentation of every file rescanned is cleared. It does
+        not delete anything, so the hint is about irreversibility, not removal.
+        """
         tools = {t.name: t for t in create_server()._tool_manager.list_tools()}
 
         assert tools["ingest_repository"].annotations.destructive_hint is True

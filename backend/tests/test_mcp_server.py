@@ -142,10 +142,34 @@ class TestSurface:
             if tool.name in WRITE_TOOLS:
                 # Advisory-only is the wrong disclosure for a tool that writes.
                 assert "changes the knowledge graph" in description, tool.name
-                assert "cannot be undone" in description, tool.name
+                assert "removes nothing" in description, tool.name
                 continue
             assert "advisory" in description, tool.name
             assert "not change approval" in description, tool.name
+
+    def test_no_tool_claims_the_ingest_replaces_what_was_there(self, server):
+        """The disclosure must match what ingest actually does.
+
+        Every node write is a MERGE on a stable id and nothing in the ingest path
+        deletes, so an ingest updates and adds. It cannot remove a file deleted
+        upstream since the last scan. Saying it "replaces" the previous scan is
+        false, and an agent deciding whether to run one would be deciding on a
+        false premise -- it sounds like a state a fresh ingest could clear, and
+        nothing can.
+        """
+        for tool in _list(server, "list_tools"):
+            description = (tool.description or "").lower()
+            assert "replaces the previous scan" not in description, tool.name
+            assert "rather than adding to it" not in description, tool.name
+
+    def test_the_write_annotations_state_the_real_reason(self, server):
+        """destructive_hint stays true; only the justification was wrong."""
+        from app.mcp import INSTRUCTIONS
+
+        instructions = INSTRUCTIONS.lower()
+        assert "replaces what a previous scan" not in instructions
+        assert "merges on stable ids" in instructions
+        assert "never removes anything" in instructions
 
     def test_exposes_four_resource_templates(self, server):
         assert {t.uri_template for t in _list(server, "list_resource_templates")} == {

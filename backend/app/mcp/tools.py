@@ -684,10 +684,12 @@ _WRITE_TOOL_SPECS = (
 )
 
 WRITE_DISCLOSURE = (
-    "This tool CHANGES the knowledge graph. It needs a write token, and what it "
-    "reads afterwards will reflect the ingest. Re-running replaces the previous "
-    "scan of the same repository rather than adding to it. Confirm with a human "
-    "before ingesting, because the result cannot be undone by another query."
+    "This tool CHANGES the knowledge graph. It needs a write token, and every "
+    "answer drawn from this repository will reflect the ingest afterwards. "
+    "Re-running is safe: each write merges on a stable id, so a second ingest "
+    "updates what is already there rather than duplicating it. It removes "
+    "nothing, so a file deleted upstream since the last scan stays in the graph "
+    "as a stale node. Confirm with a human before ingesting."
 )
 
 

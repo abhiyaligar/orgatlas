@@ -37,7 +37,9 @@ What it cannot do:
 
 Writing, and only when a write token is configured:
 * ingest a repository, which reads code and writes it to the graph belonging to
-  that repository alone. It replaces what a previous scan left there. It is the
+  that repository alone. It merges on stable ids, so re-ingesting updates what
+  is there instead of duplicating it, and it never removes anything: a file
+  deleted upstream since the last scan stays behind as a stale node. It is the
   only write capability, and it never touches a database directly.
 """.strip()
 
@@ -48,10 +50,11 @@ READ_ONLY = ToolAnnotations(
     open_world_hint=False,
 )
 
-# The opposite, for tools that ingest. read_only_hint is False and
-# destructive_hint is True: an ingest replaces what a previous scan left
-# for that repository, so a client that trusts these hints must ask a human
-# before running one.
+# The opposite, for tools that ingest. read_only_hint is False because the
+# graph changes. destructive_hint is True because the change is not something a
+# later query can take back: every answer drawn from that repository shifts, and
+# the generated documentation of every file rescanned is cleared. It deletes
+# nothing, so a client that trusts these hints should still ask a human first.
 WRITES = ToolAnnotations(
     read_only_hint=False,
     destructive_hint=True,
