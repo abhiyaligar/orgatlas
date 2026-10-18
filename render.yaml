@@ -22,13 +22,16 @@ services:
   - type: web
     name: orgatlas-dev-api
     runtime: python
-    # The starter plan is $7/month and does not sleep, which a free service
-    # does after fifteen minutes. A repository ingest is a background task on
-    # this instance and can run for minutes, so a sleep mid-scan loses the job.
-    plan: starter
+    # The paid tier is what an ingest needs. A free service sleeps after fifteen
+    # minutes idle, and a repository ingest is a background task on this
+    # instance, so a sleep or a recycle mid-scan loses the job. This is the
+    # smallest paid web service, 0.5 CPU / 512 MB. Step up to 1c-2g if a scan
+    # is slow rather than paying for headroom that was never the bottleneck.
+    plan: 0.5c-512mb
     rootDir: backend
     region: singapore # keep it near the FalkorDB instance, which is in ap-south-1
-    pythonVersion: "3.12.4"
+    # There is no pythonVersion field in the blueprint schema. Render takes the
+    # version from the repository, so backend/.python-version pins it.
     buildCommand: pip install --no-cache-dir -r requirements.txt
     # Serves only. Schema is not migrated here on purpose: an upgrade on every
     # start means a failed migration takes the service down, and two instances
@@ -36,7 +39,7 @@ services:
     # see the one-off command in Docs/DEPLOYMENT.md.
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
-    autoDeploy: true
+    autoDeployTrigger: commit
     envVars:
       - key: PYTHONPATH
         value: "."
@@ -112,7 +115,7 @@ services:
     rootDir: frontend
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
-    autoDeploy: true
+    autoDeployTrigger: commit
     # The client uses hash routing, so deep links already carry their own path.
     # The rewrite keeps a hand-typed "/" and any future history route working
     # if the routing is ever moved off the hash.

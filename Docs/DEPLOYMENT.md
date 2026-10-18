@@ -48,7 +48,7 @@ a dev deployment. `development` mounts `/mcp` with no token, and this service is
 reachable from the internet. `production` means `/mcp` refuses to mount unless
 `MCP_API_TOKEN` is set, which the blueprint generates for you.
 
-### Why the API is on the starter plan
+### Why the API is on a paid plan
 
 The free web service sleeps after fifteen minutes idle, and a repository ingest
 is a background task on that instance. A sleep or a recycle mid-scan loses the
@@ -56,7 +56,7 @@ job and leaves its status stranded where it stopped. Re-submitting is safe —
 every write is a `MERGE` on a stable id, so a re-run updates rather than
 duplicates — but it costs another sandbox and another set of model calls.
 
-The starter plan does not sleep, which is what makes a real ingest survivable.
+The paid plan does not sleep, which is what makes a real ingest survivable.
 The static site stays free; a client bundle has nothing to keep alive.
 
 **The Slack bot is not deployed here.** Socket Mode needs a long-lived
@@ -74,7 +74,9 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
 
 `PYTHONPATH=.` must be set so `alembic` finds `alembic.ini` and `app`. The
-health check path is `/api/health`.
+health check path is `/api/health`. The Python version is pinned by
+`backend/.python-version`, because the blueprint has no field for it: Render
+takes the version from the repository.
 
 ## Target deployment
 
