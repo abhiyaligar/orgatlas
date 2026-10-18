@@ -17,18 +17,31 @@ render blueprint launch          # or create one from render.yaml in the dashboa
 
 Fill in every value Render marks `sync: false`. Then deploy **in this order**:
 
-1. Deploy the API. It runs `alembic upgrade head` before serving, so the schema
-   exists in Supabase before the first request.
-2. Copy the API's hostname, `https://orgatlas-dev-api.onrender.com`.
-3. Set two values that need it: `VITE_API_BASE_URL` on the site, to
+1. Deploy the API so it has a hostname. It serves reads and writes and does
+   **not** migrate on start.
+2. Run the migrations once, deliberately:
+
+   ```bash
+   # From Render's shell, with the service's environment loaded
+   alembic upgrade head
+   ```
+
+3. Copy the API's hostname, `https://orgatlas-dev-api.onrender.com`.
+4. Set two values that need it: `VITE_API_BASE_URL` on the site, to
    `https://orgatlas-dev-api.onrender.com/api`, and `MCP_ALLOWED_HOSTS` on the
    API, to `orgatlas-dev-api.onrender.com` with no scheme. `CORS_ORIGINS` takes
    the site's origin, also with no trailing slash.
-4. Update the static site so it rebuilds with the API URL in the bundle.
+5. Update the static site so it rebuilds with the API URL in the bundle.
 
 `DATABASE_URL` is your Supabase connection string. Supabase's direct host
 normally requires TLS, so it should end in `?sslmode=require`. The schema is
 identical to any other Postgres and Alembic creates it either way.
+
+**Migrations are not part of the start command on purpose.** An upgrade on every
+start means a failed migration takes the service down before it can report the
+failure, and two instances starting at once race each other against the same
+schema. Running them as a separate deliberate step keeps a bad migration from
+being indistinguishable from a bad deploy.
 
 **`ENVIRONMENT` is set to `production`, not `development`,** even though this is
 a dev deployment. `development` mounts `/mcp` with no token, and this service is
@@ -56,7 +69,7 @@ The blueprint is a convenience, not a requirement. A web service rooted at
 
 ```bash
 pip install -r requirements.txt
-alembic upgrade head
+alembic upgrade head          # once, deliberately; not part of the start command
 uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
 

@@ -4,8 +4,11 @@
 #        render blueprint launch
 #   2. Fill in every value marked SYNC FALSE. Render stores them as secrets and
 #      never writes them back to the repository.
-#   3. Deploy the API first. The static site needs the API's URL to build, so
-#      set VITE_API_BASE_URL after the API has a hostname, then update the site.
+#   3. Run the migrations once, deliberately, before the first request. The
+#      service only reads and writes; it never migrates on start. See
+#      Docs/DEPLOYMENT.md for the one-off command.
+#   4. Deploy the API. The static site needs the API's URL to build, so set
+#      VITE_API_BASE_URL after the API has a hostname, then update the site.
 #
 # Postgres is Supabase, not a Render database, so nothing in this file creates
 # one. Set DATABASE_URL to your Supabase connection string; Alembic creates the
@@ -27,10 +30,11 @@ services:
     region: singapore # keep it near the FalkorDB instance, which is in ap-south-1
     pythonVersion: "3.12.4"
     buildCommand: pip install --no-cache-dir -r requirements.txt
-    # Migrations run before the server accepts traffic. Schema is owned by
-    # Alembic alone, so there is nothing else to bring up. `upgrade` writes
-    # alembic_version itself; stamping afterwards would only hide a failure.
-    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    # Serves only. Schema is not migrated here on purpose: an upgrade on every
+    # start means a failed migration takes the service down, and two instances
+    # starting at once race each other. Run migrations deliberately instead --
+    # see the one-off command in Docs/DEPLOYMENT.md.
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
