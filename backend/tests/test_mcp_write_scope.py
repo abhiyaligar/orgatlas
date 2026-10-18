@@ -148,20 +148,42 @@ class TestWriteToolGuards:
 
         token = set_scope(MCP_READ_SCOPE)
         try:
-            with pytest.raises(InsufficientScope):
-                enqueue_repository_ingest("https://github.com/example/repo")
+            result = enqueue_repository_ingest("https://github.com/example/repo")
         finally:
             reset_scope(token)
+
+        assert "write token" in str(result).lower()
+        assert "job_id" not in result
 
     def test_polling_a_job_refuses_a_read_caller(self, tokens):
         from app.mcp.write_tools import get_ingest_job
 
         token = set_scope(MCP_READ_SCOPE)
         try:
-            with pytest.raises(InsufficientScope):
-                get_ingest_job(1)
+            result = get_ingest_job(1)
         finally:
             reset_scope(token)
+
+        assert "write token" in str(result).lower()
+        assert "status" not in result
+
+    def test_a_refusal_explains_itself_rather_than_crashing(self, tokens):
+        """The SDK turns an exception into "Error executing tool".
+
+        An agent that cannot tell a permissions problem from a crash cannot do
+        anything sensible, so the reason has to survive to the caller.
+        """
+        from app.mcp.write_tools import enqueue_repository_ingest
+
+        token = set_scope(MCP_READ_SCOPE)
+        try:
+            result = enqueue_repository_ingest("https://github.com/example/repo")
+        finally:
+            reset_scope(token)
+
+        assert "write token" in result["summary"].lower()
+        assert "MCP_WRITE_API_TOKEN" in result["summary"]
+        assert result["risk_and_uncertainty_notes"]
 
     def test_a_non_http_url_is_refused_with_a_reason(self, tokens):
         from app.mcp.write_tools import enqueue_repository_ingest
@@ -173,3 +195,118 @@ class TestWriteToolGuards:
             reset_scope(token)
 
         assert "http" in str(result).lower()
+
+class TestOverRealHttp:
+    """The unit tests cannot see this: the SDK runs a tool in a context that is
+    not the one the ASGI middleware ran in. These go through the whole stack.
+    """
+
+    HEADERS = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text-event-stream",
+    }
+    INITIALIZE = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "test", "version": "1"},
+        },
+    }
+
+    def _app(self, monkeypatch, write_token="", read_token="read-token"):
+        from starlette.testclient import TestClient
+
+        from app.main import create_app
+
+        monkeypatch.setattr(settings, "ENVIRONMENT", "production", raising=False)
+        monkeypatch.setattr(settings, "MCP_API_TOKEN", read_token, raising=False)
+        monkeypatch.setattr(settings, "MCP_WRITE_API_TOKEN", write_token, raising=False)
+        monkeypatch.setattr(settings, "MCP_ALLOWED_HOSTS", "*", raising=False)
+        return TestClient(create_app())
+
+    def _call(self, client, token, name, arguments):
+        headers = dict(self.HEADERS, Authorization=f"Bearer {token}")
+        client.post("/mcp", headers=headers, json=self.INITIALIZE)
+        response = client.post(
+            "/mcp",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": arguments},
+            },
+        )
+        return response.text
+
+    def test_a_read_token_cannot_ingest(self, monkeypatch):
+        with self._app(monkeypatch) as client:
+            body = self._call(
+                client,
+                "read-token",
+                "ingest_repository",
+                {"repository_url": "https://github.com/example/repo"},
+            )
+
+        assert "write token" in body.lower()
+
+    def test_the_refusal_reaches_the_caller_with_its_reason(self, monkeypatch):
+        """Not "Error executing tool": an agent has to know what went wrong."""
+        with self._app(monkeypatch) as client:
+            body = self._call(
+                client,
+                "read-token",
+                "ingest_repository",
+                {"repository_url": "https://github.com/example/repo"},
+            )
+
+        assert "MCP_WRITE_API_TOKEN" in body
+        assert "Error executing tool" not in body
+
+    def test_a_write_token_reaches_the_tool(self, monkeypatch):
+        """Proved with a URL the tool rejects, so nothing is ingested."""
+        with self._app(monkeypatch, write_token="write-token") as client:
+            body = self._call(
+                client,
+                "write-token",
+                "ingest_repository",
+                {"repository_url": "ftp://example.com/repo"},
+            )
+
+        assert "http or https" in body.lower()
+        assert "write token" not in body.lower()
+
+    def test_a_read_token_cannot_read_a_job(self, monkeypatch):
+        with self._app(monkeypatch) as client:
+            body = self._call(client, "read-token", "get_ingest_job", {"job_id": 1})
+
+        assert "write token" in body.lower()
+
+    def test_a_read_token_still_answers_read_tools(self, monkeypatch):
+        """The read boundary is the point of the split; check it still opens."""
+        with self._app(monkeypatch) as client:
+            headers = dict(self.HEADERS, Authorization="Bearer read-token")
+            client.post("/mcp", headers=headers, json=self.INITIALIZE)
+            response = client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/list",
+                },
+            )
+
+        assert response.status_code == 200
+        assert "get_architecture_context" in response.text
+
+    def test_no_token_at_all_still_refuses_the_route(self, monkeypatch):
+        """The split must not weaken the existing fail-closed behaviour."""
+        with self._app(monkeypatch, read_token="", write_token="") as client:
+            client.post("/mcp", headers=self.HEADERS, json=self.INITIALIZE)
+            response = client.post("/mcp", headers=self.HEADERS, json=self.INITIALIZE)
+
+        assert response.status_code == 404

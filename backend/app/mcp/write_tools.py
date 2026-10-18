@@ -26,7 +26,7 @@ from typing import Any, Dict, Optional
 from app.core.dependencies import SessionLocal
 from app.db.models import AuditLog, IngestJob
 from app.mcp import refusal
-from app.mcp.scope import require_write
+from app.mcp.scope import InsufficientScope, require_write
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +47,26 @@ def _job_payload(job: IngestJob) -> Dict[str, Any]:
     }
 
 
+def _refuse_unless_writable() -> Optional[Dict[str, Any]]:
+    """Return a refusal when the caller lacks the write scope, else None.
+
+    The guard raises, because a raise is the harder failure. It is caught here
+    only to give the reason back: the MCP SDK replaces an exception with
+    "Error executing tool", which leaves an agent unable to tell a permissions
+    problem from a crash and therefore unable to do anything sensible about it.
+    """
+    try:
+        require_write()
+    except InsufficientScope as exc:
+        return refusal(str(exc))
+    return None
+
+
 def enqueue_repository_ingest(repository_url: str) -> Dict[str, Any]:
     """Queue a repository ingestion and return immediately with a job id."""
-    require_write()
+    denied = _refuse_unless_writable()
+    if denied is not None:
+        return denied
 
     url = (repository_url or "").strip()
     if not url.startswith(("http://", "https://")):
@@ -94,7 +111,9 @@ def enqueue_repository_ingest(repository_url: str) -> Dict[str, Any]:
 
 def get_ingest_job(job_id: int) -> Dict[str, Any]:
     """Report the current state of an ingestion job."""
-    require_write()
+    denied = _refuse_unless_writable()
+    if denied is not None:
+        return denied
 
     session = SessionLocal()
     try:
