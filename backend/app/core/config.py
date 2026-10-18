@@ -1,6 +1,7 @@
 from pathlib import Path
-from typing import List, Optional
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Annotated, List, Optional
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 REPO_ROOT = BACKEND_DIR.parent
@@ -14,11 +15,35 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
     API_V1_PREFIX: str = "/api"
-    CORS_ORIGINS: List[str] = [
+    # NoDecode stops pydantic-settings from parsing this as JSON. Without it an
+    # environment variable has to be written as ["https://a.example.com"], and
+    # the far more natural CORS_ORIGINS=https://a.example.com fails to start
+    # the service with a SettingsError. The validator below accepts both.
+    CORS_ORIGINS: Annotated[List[str], NoDecode] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
     ]
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def _parse_origins(cls, value):
+        """Accept a comma separated list, a JSON array, or a real list.
+
+        Hosts are set as plain environment variables in a hosting dashboard,
+        where quoting a JSON array is a trap. Surrounding brackets and quotes
+        are tolerated so a value copied from a JSON env file still works.
+        """
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if text.startswith("[") and text.endswith("]"):
+            text = text[1:-1]
+        return [
+            origin.strip().strip("\"'")
+            for origin in text.split(",")
+            if origin.strip().strip("\"'")
+        ]
 
     # Relational/Metadata storage governed strictly via Alembic
     DATABASE_URL: str = "sqlite:///./orgatlas.db"
