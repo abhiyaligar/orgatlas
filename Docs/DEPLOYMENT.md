@@ -7,8 +7,9 @@ environment variables and never from source.
 ## Deploying to Render
 
 `render.yaml` is a Render blueprint describing a development deployment: one
-Python web service for the API, one static site for the client, and a managed
-Postgres for jobs and documents. It contains no credential.
+Python web service for the API and one static site for the client. Postgres is
+your Supabase database, not a Render-managed one, so the blueprint creates
+nothing to expire. It contains no credential.
 
 ```bash
 render blueprint launch          # or create one from render.yaml in the dashboard
@@ -17,7 +18,7 @@ render blueprint launch          # or create one from render.yaml in the dashboa
 Fill in every value Render marks `sync: false`. Then deploy **in this order**:
 
 1. Deploy the API. It runs `alembic upgrade head` before serving, so the schema
-   exists before the first request.
+   exists in Supabase before the first request.
 2. Copy the API's hostname, `https://orgatlas-dev-api.onrender.com`.
 3. Set two values that need it: `VITE_API_BASE_URL` on the site, to
    `https://orgatlas-dev-api.onrender.com/api`, and `MCP_ALLOWED_HOSTS` on the
@@ -25,23 +26,28 @@ Fill in every value Render marks `sync: false`. Then deploy **in this order**:
    the site's origin, also with no trailing slash.
 4. Update the static site so it rebuilds with the API URL in the bundle.
 
+`DATABASE_URL` is your Supabase connection string. Supabase's direct host
+normally requires TLS, so it should end in `?sslmode=require`. The schema is
+identical to any other Postgres and Alembic creates it either way.
+
 **`ENVIRONMENT` is set to `production`, not `development`,** even though this is
 a dev deployment. `development` mounts `/mcp` with no token, and this service is
 reachable from the internet. `production` means `/mcp` refuses to mount unless
 `MCP_API_TOKEN` is set, which the blueprint generates for you.
 
-### Things the free plan will do to you
+### Why the API is on the starter plan
 
-- **The API sleeps after 15 minutes idle.** A cold start then takes about a minute.
-  Fine for a demo; awkward while you are watching an ingest.
-- **A long ingest can be killed mid-scan.** Ingestion runs as a background task
-  on the API instance, so if the instance is recycled the job stops and the
-  status stays where it was. Re-submitting is safe: every write is a `MERGE` on a
-  stable id, so a re-run updates rather than duplicates.
-- **The free Postgres expires.** Keep your Supabase database instead by pointing
-  `DATABASE_URL` at it; the schema is identical and Alembic creates it either way.
-- **The Slack bot is not deployed here.** Socket Mode needs a long-lived
-  connection, which a free web service does not provide. Run it elsewhere.
+The free web service sleeps after fifteen minutes idle, and a repository ingest
+is a background task on that instance. A sleep or a recycle mid-scan loses the
+job and leaves its status stranded where it stopped. Re-submitting is safe —
+every write is a `MERGE` on a stable id, so a re-run updates rather than
+duplicates — but it costs another sandbox and another set of model calls.
+
+The starter plan does not sleep, which is what makes a real ingest survivable.
+The static site stays free; a client bundle has nothing to keep alive.
+
+**The Slack bot is not deployed here.** Socket Mode needs a long-lived
+outbound connection that a web service does not provide. Run it elsewhere.
 
 ### Deploying by hand instead
 
