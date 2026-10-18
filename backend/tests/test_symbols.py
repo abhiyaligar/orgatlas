@@ -297,11 +297,38 @@ class TestSymbolQueriesAgainstTheEngine:
         try:
             rows = graph.query(
                 queries.GET_CODE_SYMBOL,
-                {"name": "graph_udf", "file_id": "", "limit": 5},
+                {"name": "graph_udf", "file_id": "", "file_prefix": "", "limit": 5},
             ).result_set
         except Exception as exc:
             pytest.fail(f"GET_CODE_SYMBOL rejected by the engine: {exc}")
         assert isinstance(rows, list)
+
+    def test_symbol_lookup_filters_by_file_when_given_a_prefix(self):
+        """The prefix filter has to run, not merely be accepted.
+
+        ``STARTS WITH $file_id + '::'`` made FalkorDB reject the whole statement,
+        and the failure was invisible: the tool refused with "no declaration
+        named", which reads exactly like a genuinely missing symbol.
+        """
+        from app.graph import queries
+
+        graph = self._graph()
+        with_prefix = graph.query(
+            queries.GET_CODE_SYMBOL,
+            {
+                "name": "graph_udf",
+                "file_id": "some_repo::src/a.c",
+                "file_prefix": "some_repo::src/a.c::",
+                "limit": 5,
+            },
+        ).result_set
+        without_prefix = graph.query(
+            queries.GET_CODE_SYMBOL,
+            {"name": "graph_udf", "file_id": "", "file_prefix": "", "limit": 5},
+        ).result_set
+
+        assert isinstance(with_prefix, list)
+        assert len(with_prefix) <= len(without_prefix)
 
     def test_name_search_runs(self):
         from app.graph import queries

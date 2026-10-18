@@ -361,7 +361,18 @@ class ChangeForensicsService:
         choosing one, because picking the wrong overload would be worse than
         reporting that the name is shared.
         """
-        matches = self.gateway.get_code_symbol(name, file_id=file_id, limit=limit, graph_name=graph_name)
+        if graph_name:
+            matches = self.gateway.get_code_symbol(
+                name, file_id=file_id, limit=limit, graph_name=graph_name
+            )
+        else:
+            # No file and no graph: the name alone cannot say which
+            # repository it belongs to, so every repository graph is
+            # searched rather than the organisation graph, which holds no
+            # declarations and would answer "no declaration named".
+            matches = self.gateway.search_code_symbols_in_every_graph(
+                name, limit=limit
+            )
 
         if not matches:
             return {

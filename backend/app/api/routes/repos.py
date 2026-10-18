@@ -13,8 +13,6 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.errors import GraphNotFoundError
-from app.graph.connection import org_graph_name, repository_graph_name
 from app.api.schemas import (
     ChurnResponse,
     CommitSummary,
@@ -196,34 +194,23 @@ _provenance = CommitProvenanceService()
 
 
 def _repository_graph(repository_id: str) -> str:
-    """Resolve a repository to the graph that holds its code, or 404.
+    """Translate an unknown repository into a 404 for the REST surface."""
+    from app.graph.repository_scope import UnknownRepository, repository_graph
 
-    Ingestion writes a repository into its own graph named after its id, so the
-    organisation graph no longer holds the Repository node. Every
-    repository-scoped route resolves its graph here, once, and passes it down;
-    a lookup that silently defaulted to the org graph would return an empty
-    result rather than an error, which is the failure this whole split
-    introduced.
-    """
-    from app.graph.gateway import graph_gateway
+    try:
+        return repository_graph(repository_id)
+    except UnknownRepository as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    org = org_graph_name()
-    for graph_name in (repository_graph_name(repository_id), org):
-        try:
-            if graph_gateway.repository_exists(repository_id, graph_name=graph_name):
-                return graph_name
-        except GraphNotFoundError:
-            # The repository has no graph yet. That is the expected answer for
-            # anything not yet ingested, not a fault to report as a 503.
-            continue
 
-    raise HTTPException(
-        status_code=404,
-        detail=(
-            f"Repository '{repository_id}' is not in the knowledge graph. "
-            "Ingest it first via POST /api/repos/ingest."
-        ),
-    )
+def _graph_for_file(file_id: str) -> str:
+    """Translate a malformed file id into a 400 for the REST surface."""
+    from app.graph.repository_scope import InvalidFileId, graph_for_file
+
+    try:
+        return graph_for_file(file_id)
+    except InvalidFileId as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/{repository_id}/brief", response_model=InvestigationBriefResponse)
@@ -242,26 +229,6 @@ async def get_file_churn(repository_id: str, path_prefix: str = "", limit: int =
     return _forensics.churn_ranking(
         repository_id, path_prefix=path_prefix, limit=limit, graph_name=graph_name
     )
-
-
-def _graph_for_file(file_id: str) -> str:
-    """Name the graph holding a file, derived from the file's own id.
-
-    A file id is ``{repository_id}::{path}``, so a caller holding one already
-    holds the repository id -- the graph name is a consequence, not another
-    parameter. A file id without that prefix cannot name a graph and is a 400,
-    because guessing the organisation graph here would return an empty result
-    rather than an error.
-    """
-    if "::" not in file_id:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"'{file_id}' is not a file id. Expected "
-                "'{repository_id}::{path}'."
-            ),
-        )
-    return repository_graph_name(file_id.split("::", 1)[0])
 
 
 @router.get("/file/timeline", response_model=FileTimelineResponse)
@@ -326,7 +293,9 @@ async def get_commit_provenance(commit_id: str, repository_id: Optional[str] = N
     """
     graph_name = _repository_graph(repository_id) if repository_id else None
     if graph_name is None:
-        graph_name = _find_commit_graph(commit_id)
+        from app.graph.repository_scope import find_commit_graph
+
+        graph_name = find_commit_graph(commit_id)
 
     result = _provenance.trace(commit_id, graph_name=graph_name or "")
     if result is None:
@@ -334,20 +303,6 @@ async def get_commit_provenance(commit_id: str, repository_id: Optional[str] = N
             status_code=404, detail=f"Commit '{commit_id}' is not in the knowledge graph."
         )
     return result
-
-
-def _find_commit_graph(commit_id: str) -> Optional[str]:
-    """Which repository graph holds this commit, if any."""
-    from app.graph.connection import graph_manager
-    from app.graph.gateway import graph_gateway
-
-    for name in graph_manager.list_repository_graphs():
-        try:
-            if graph_gateway.get_commit_detail(commit_id, graph_name=name):
-                return name
-        except Exception:
-            logger.error("Failed to search graph '%s' for commit", name, exc_info=True)
-    return None
 
 
 @router.get("/file/symbols/{name}", response_model=SymbolDescriptionResponse)

@@ -327,7 +327,7 @@ class TestDescribeSymbol:
 
     def test_returns_documented_symbol_with_its_file_and_line(self):
         service = ChangeForensicsService(gateway=self._gateway([self._match()]))
-        result = service.describe_symbol("new")
+        result = service.describe_symbol("new", graph_name="code_test")
 
         assert result["match_count"] == 1
         match = result["matches"][0]
@@ -349,7 +349,7 @@ class TestDescribeSymbol:
                 ),
             ]
         )
-        result = ChangeForensicsService(gateway=gateway).describe_symbol("new")
+        result = ChangeForensicsService(gateway=gateway).describe_symbol("new", graph_name="code_test")
 
         assert result["match_count"] == 2
         assert {m["container"] for m in result["matches"]} == {"Default for Widget", "Widget"}
@@ -357,29 +357,29 @@ class TestDescribeSymbol:
 
     def test_undocumented_symbol_is_flagged_not_hidden(self):
         gateway = self._gateway([self._match(doc_comment="", documented=False)])
-        result = ChangeForensicsService(gateway=gateway).describe_symbol("new")
+        result = ChangeForensicsService(gateway=gateway).describe_symbol("new", graph_name="code_test")
 
         assert result["matches"][0]["documented"] is False
         assert any("None of these declarations" in g for g in result["guidance"])
 
     def test_drift_is_measured_against_the_owning_file(self):
         gateway = self._gateway([self._match()], changes=4)
-        result = ChangeForensicsService(gateway=gateway).describe_symbol("new")
+        result = ChangeForensicsService(gateway=gateway).describe_symbol("new", graph_name="code_test")
 
         assert result["matches"][0]["changes_since_docs"] == 4
         gateway.get_file_changes_after.assert_called_with(
-            "repo_x::src/f.rs", "2024-01-01T00:00:00Z", graph_name=""
+            "repo_x::src/f.rs", "2024-01-01T00:00:00Z", graph_name="code_test"
         )
 
     def test_unknown_scan_point_reports_no_drift_evidence(self):
         gateway = self._gateway([self._match(docs_at_sha="")])
-        result = ChangeForensicsService(gateway=gateway).describe_symbol("new")
+        result = ChangeForensicsService(gateway=gateway).describe_symbol("new", graph_name="code_test")
 
         assert result["matches"][0]["changes_since_docs"] == 0
         gateway.get_commit_authored_at.assert_not_called()
 
     def test_no_match_is_an_explicit_refusal(self):
-        result = ChangeForensicsService(gateway=self._gateway([])).describe_symbol("nope")
+        result = ChangeForensicsService(gateway=self._gateway([])).describe_symbol("nope", graph_name="code_test")
 
         assert result["match_count"] == 0
         assert result["matches"] == []
@@ -389,5 +389,5 @@ class TestDescribeSymbol:
 
     def test_recent_history_is_attached(self):
         gateway = self._gateway([self._match()])
-        result = ChangeForensicsService(gateway=gateway).describe_symbol("new")
+        result = ChangeForensicsService(gateway=gateway).describe_symbol("new", graph_name="code_test")
         assert result["matches"][0]["recent_history"][0]["sha"] == "s1"

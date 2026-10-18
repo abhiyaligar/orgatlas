@@ -67,6 +67,41 @@ def _citation_dict(citation) -> Dict[str, Any]:
     }
 
 
+# --- Graph resolution for repository-scoped tools ---------------------------
+# Several tools below read repository data. Each has to name the graph first,
+# or it answers from the organisation graph and reports "no history" for a
+# repository whose history is sitting in its own graph. These two helpers keep
+# that resolution in one place and fail as a refusal rather than an exception:
+# a tool that raises is reported by the SDK as "Error executing tool" with no
+# reason attached, which is the same trap the write tools had.
+
+
+def _graph_for_repository(repository_id: str):
+    """Return (graph_name, None), or (None, refusal) for an unknown repository."""
+    from app.graph.repository_scope import UnknownRepository, repository_graph
+
+    try:
+        return repository_graph(repository_id), None
+    except UnknownRepository as exc:
+        return None, refusal(
+            str(exc),
+            notes=["Ingest it first with ingest_repository, then ask again."],
+        )
+
+
+def _graph_for_file_id(file_id: str):
+    """Return (graph_name, None), or (None, refusal) for an unusable file id."""
+    from app.graph.repository_scope import InvalidFileId, graph_for_file
+
+    try:
+        return graph_for_file(file_id), None
+    except InvalidFileId as exc:
+        return None, refusal(
+            str(exc),
+            notes=["A file id is the graph node id, e.g. repo_name::src/main.rs"],
+        )
+
+
 # --- Seeded organization ---------------------------------------------------
 
 
@@ -121,7 +156,10 @@ def get_architecture_context(identifier: str) -> Dict[str, Any]:
 
 
 def _repository_architecture_context(repository_id: str) -> Dict[str, Any]:
-    brief = _forensics.investigation_brief(repository_id)
+    graph_name, denied = _graph_for_repository(repository_id)
+    if denied is not None:
+        return denied
+    brief = _forensics.investigation_brief(repository_id, graph_name=graph_name)
 
     if not brief["hotspots"] and not brief["dependency_blast_radius"]:
         return refusal(
@@ -155,7 +193,12 @@ def find_owner_and_expertise(system_identifier: str) -> Dict[str, Any]:
     ownership = _ownership.get_ownership(target)
 
     if ownership is None and target.startswith("repo_"):
-        contributors = _forensics.investigation_brief(target)["contributors"]
+        graph_name, denied = _graph_for_repository(target)
+        if denied is not None:
+            return denied
+        contributors = _forensics.investigation_brief(
+            target, graph_name=graph_name
+        )["contributors"]
         if not contributors:
             return refusal(f"No ingested history for '{target}'.")
         return envelope(
@@ -322,7 +365,10 @@ def trace_change_origin(file_id: str, limit: int = 25) -> Dict[str, Any]:
     ``file_id`` is the graph node id of the form ``repo_<name>::<path>``.
     """
     target = validate_identifier(file_id, "file_id")
-    timeline = _forensics.file_timeline(target, limit=clamp(limit))
+    graph_name, denied = _graph_for_file_id(target)
+    if denied is not None:
+        return denied
+    timeline = _forensics.file_timeline(target, limit=clamp(limit), graph_name=graph_name)
 
     if timeline is None:
         return refusal(
@@ -333,7 +379,7 @@ def trace_change_origin(file_id: str, limit: int = 25) -> Dict[str, Any]:
             ],
         )
 
-    coupling = _forensics.coupled_files(target, limit=10)
+    coupling = _forensics.coupled_files(target, limit=10, graph_name=graph_name)
     history = timeline["history"]
     notes = [coupling["advice"]]
 
@@ -396,8 +442,11 @@ def assess_file_risk(
     target = validate_identifier(file_path, "file_path")
     repository = validate_identifier(repository_id, "repository_id")
 
+    graph_name, denied = _graph_for_repository(repository)
+    if denied is not None:
+        return denied
     churn = _forensics.churn_ranking(
-        repository, path_prefix=target, limit=clamp(limit)
+        repository, path_prefix=target, limit=clamp(limit), graph_name=graph_name
     )
     if not churn["files"]:
         return refusal(
@@ -407,9 +456,9 @@ def assess_file_risk(
 
     hotspots = churn["hotspots"] or churn["files"]
     hottest = hotspots[0]
-    contributors = _forensics.module_history(repository, path_prefix=target, limit=1)[
-        "contributors"
-    ]
+    contributors = _forensics.module_history(
+        repository, path_prefix=target, limit=1, graph_name=graph_name
+    )["contributors"]
 
     notes = [
         f"Highest churn here: {hottest['path']} ({hottest['changes']} changes).",
@@ -444,7 +493,10 @@ def describe_file(file_id: str) -> Dict[str, Any]:
 
     ``file_id`` is the graph node id of the form ``repo_<name>::<path>``.
     """
-    result = _forensics.describe_file(file_id)
+    graph_name, denied = _graph_for_file_id(file_id)
+    if denied is not None:
+        return denied
+    result = _forensics.describe_file(file_id, graph_name=graph_name)
 
     if result is None:
         return refusal(
@@ -492,7 +544,12 @@ def describe_symbol(symbol_name: str, file_id: str = "") -> Dict[str, Any]:
     than silently choosing one.
     """
     name = validate_identifier(symbol_name, "symbol_name")
-    result = _forensics.describe_symbol(name, file_id=file_id)
+    graph_name = ""
+    if file_id:
+        graph_name, denied = _graph_for_file_id(file_id)
+        if denied is not None:
+            return denied
+    result = _forensics.describe_symbol(name, file_id=file_id, graph_name=graph_name)
 
     if result["match_count"] == 0:
         return refusal(
@@ -565,7 +622,12 @@ def get_repo_dependency_impact(
 ) -> Dict[str, Any]:
     """Cross-repository blast radius for an ingested repository."""
     repository = validate_identifier(repository_id, "repository_id")
-    dependencies = _forensics.investigation_brief(repository)["dependency_blast_radius"]
+    graph_name, denied = _graph_for_repository(repository)
+    if denied is not None:
+        return denied
+    dependencies = _forensics.investigation_brief(
+        repository, graph_name=graph_name
+    )["dependency_blast_radius"]
 
     if not dependencies:
         return refusal(f"No declared repository dependencies recorded for '{repository}'.")

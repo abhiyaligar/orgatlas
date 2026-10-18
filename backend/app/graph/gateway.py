@@ -521,7 +521,15 @@ class GraphGateway:
         """Look up declarations by name, most documented first."""
         rows = self._execute(
             queries.GET_CODE_SYMBOL,
-            {"name": name, "file_id": file_id or "", "limit": clamp_limit(limit)},
+            {
+                "name": name,
+                "file_id": file_id or "",
+                # Built here rather than concatenated in the query: a
+                # parameter inside `STARTS WITH $x + '::'` makes FalkorDB reject
+                # the whole statement with "expected Boolean but was String".
+                "file_prefix": f"{file_id}::" if file_id else "",
+                "limit": clamp_limit(limit),
+            },
             graph_name,
         )
         return [
@@ -541,6 +549,36 @@ class GraphGateway:
             }
             for row in rows
         ]
+
+    def search_code_symbols_in_every_graph(
+        self, name: str, limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Find a declaration when the caller does not say which file it is in.
+
+        A symbol name carries no repository, and a name like ``register`` exists
+        in more than one of them, so an unscoped lookup has to visit each
+        repository graph rather than default to the organisation graph -- which
+        holds no declarations at all, and therefore reports "no declaration
+        named" for a declaration that is sitting right there.
+
+        Each result carries the graph it came from, so a caller can tell two
+        same-named declarations apart instead of receiving an arbitrary one.
+        """
+        found: List[Dict[str, Any]] = []
+        for candidate in [org_graph_name()] + graph_manager.list_repository_graphs():
+            try:
+                matches = self.get_code_symbol(name, limit=limit, graph_name=candidate)
+            except GraphNotFoundError:
+                continue
+            except Exception:
+                logger.error(
+                    "Failed to search graph '%s' for symbol", candidate, exc_info=True
+                )
+                continue
+            for match in matches:
+                match["graph_name"] = candidate
+                found.append(match)
+        return found
 
     def search_code_symbols(
         self, query: str, limit: int = 20, graph_name: str = ""

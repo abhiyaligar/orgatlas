@@ -276,7 +276,7 @@ RETURN count(c) AS changes,
 GET_CODE_SYMBOL = """
 MATCH (s:CodeSymbol)
 WHERE toLower(s.name) = toLower($name)
-  AND ($file_id = '' OR s.id STARTS WITH $file_id + '::')
+  AND ($file_prefix = '' OR s.id STARTS WITH $file_prefix)
 RETURN s.id AS id,
        s.name AS name,
        coalesce(s.kind, '') AS kind,

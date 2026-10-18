@@ -266,6 +266,30 @@ class TestMountSafety:
         assert not any("mcp" in getattr(route, "path", "") for route in api_router.routes)
 
 
+class _RepoResolves:
+    """Let repository resolution succeed so the service mocks are reached.
+
+    Repository-scoped tools resolve their graph before touching the forensics
+    service. Without this the tool refuses on an unknown repository and the
+    mock is never called, so a test about what the service returns would be
+    testing the refusal instead.
+    """
+
+    def __enter__(self):
+        from app.graph import repository_scope
+
+        self._real = repository_scope.repository_graph
+        repository_scope.repository_graph = lambda repository_id: (
+            f"code_{repository_id}" if repository_id.startswith("repo_") else ""
+        )
+        return self
+
+    def __exit__(self, *exc):
+        from app.graph import repository_scope
+
+        repository_scope.repository_graph = self._real
+
+
 class TestRefusalsInsteadOfGuessing:
     def test_unknown_identifier_refuses_and_suggests_valid_ids(self):
         with patch.object(tools_module, "_decisions") as decisions, patch.object(
@@ -290,7 +314,8 @@ class TestRefusalsInsteadOfGuessing:
             payload = tools_module.get_architecture_context("repo_unknown")
 
         assert payload["advisory_only"] is True
-        assert "No ingested history" in payload["summary"]
+        assert "not in the knowledge graph" in payload["summary"]
+        assert "ingest_repository" in " ".join(payload["risk_and_uncertainty_notes"])
 
     def test_unknown_decision_names_the_seeded_decisions(self):
         with patch.object(tools_module, "_decisions") as decisions:
@@ -367,7 +392,7 @@ class TestForensicTools:
         assert "::" in joined, "should show the repo::path node-id form"
 
     def test_assess_file_risk_flags_a_test_only_hotspot(self):
-        with patch.object(tools_module, "_forensics") as forensics:
+        with patch.object(tools_module, "_forensics") as forensics, _RepoResolves():
             forensics.churn_ranking.return_value = {
                 "files": [{"file_id": "repo_x::t/a_test.rs", "path": "t/a_test.rs",
                            "changes": 30, "is_test": True}],
@@ -379,14 +404,14 @@ class TestForensicTools:
         assert any("still settling" in n for n in payload["risk_and_uncertainty_notes"])
 
     def test_assess_file_risk_refuses_on_unknown_path(self):
-        with patch.object(tools_module, "_forensics") as forensics:
+        with patch.object(tools_module, "_forensics") as forensics, _RepoResolves():
             forensics.churn_ranking.return_value = {"files": [], "hotspots": []}
             payload = tools_module.assess_file_risk("does/not/exist")
 
         assert "No ingested history" in payload["summary"]
 
     def test_dependency_impact_states_that_nothing_was_cloned(self):
-        with patch.object(tools_module, "_forensics") as forensics:
+        with patch.object(tools_module, "_forensics") as forensics, _RepoResolves():
             forensics.investigation_brief.return_value = {
                 "dependency_blast_radius": [{"id": "repo_dep", "name": "dep"}]
             }
