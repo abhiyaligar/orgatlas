@@ -535,22 +535,21 @@ class GraphGateway:
         return [
             {
                 "id": row[0],
-                "name": row[1],
-                "kind": row[2],
-                "signature": row[3],
-                "doc_comment": row[4],
-                "documented": row[5],
-                "line": row[6],
-                "visibility": row[7],
-                "container": row[8],
-                "language": row[9],
-                "repository_id": row[10],
-                "docs_at_sha": row[11],
-                "end_line": row[12],
-                # A symbol id is "{file_id}::{kind}::{name}". Splitting from the
-                # right is what makes file_id recoverable: a path may itself
-                # contain "::", so splitting from the left would corrupt it.
-                "file_id": row[0].rsplit("::", 2)[0],
+                # From the DECLARES edge, not from parsing the id: see the
+                # comment on the query. Empty when the edge is missing.
+                "file_id": row[1],
+                "name": row[2],
+                "kind": row[3],
+                "signature": row[4],
+                "doc_comment": row[5],
+                "documented": row[6],
+                "line": row[7],
+                "visibility": row[8],
+                "container": row[9],
+                "language": row[10],
+                "repository_id": row[11],
+                "docs_at_sha": row[12],
+                "end_line": row[13],
             }
             for row in rows
         ]

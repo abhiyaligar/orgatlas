@@ -366,8 +366,15 @@ class TestToolsActuallyReturnTheBody:
         assert envelope(summary="with code", body="x").get("body") == "x"
 
     def test_the_symbol_row_carries_what_retrieval_needs(self):
-        """file_id and end_line come from the gateway, not from string surgery
-        at the call site: a path may itself contain '::'."""
+        """file_id must come from the graph, never from parsing the symbol id.
+
+        A symbol id has two shapes: "{file}::{kind}::{name}" for a top-level
+        declaration and "{file}::{kind:Container:name}" for a method. The method
+        form carries only two "::" separators, so the split that recovers the
+        file for the first shape returns just the repository id for the second.
+        That produced "No stored body for 'repo_x'" for every method in the
+        repository, which reads exactly like a storage outage.
+        """
         import inspect
 
         from app.graph.gateway import GraphGateway
@@ -375,4 +382,22 @@ class TestToolsActuallyReturnTheBody:
         source = inspect.getsource(GraphGateway.get_code_symbol)
         assert '"file_id"' in source
         assert '"end_line"' in source
-        assert 'rsplit("::", 2)[0]' in source
+        assert "rsplit" not in source, "file_id must not be parsed out of the id"
+
+    def test_both_symbol_id_shapes_resolve_to_the_same_file(self):
+        """The two shapes are the whole reason parsing was abandoned."""
+        import inspect
+
+        from app.graph import queries
+
+        # file_id comes from the DECLARES edge.
+        assert "OPTIONAL MATCH (f:File)-[:DECLARES]->(s)" in queries.GET_CODE_SYMBOL
+        assert "AS file_id" in queries.GET_CODE_SYMBOL
+
+        top_level = "repo_x::src/a.py::function::handler"
+        method = "repo_x::src/a.py::function:Service:handler"
+        for shape in (top_level, method):
+            assert shape.count("::") >= 2
+        # A single fixed split cannot serve both.
+        assert top_level.rsplit("::", 2)[0] == "repo_x::src/a.py"
+        assert method.rsplit("::", 2)[0] != "repo_x::src/a.py"

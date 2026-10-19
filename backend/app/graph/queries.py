@@ -273,11 +273,19 @@ RETURN count(c) AS changes,
        collect(DISTINCT c.id)[..5] AS recent_shas
 """
 # 22. Look up a declaration by name, optionally scoped to one file
+# The declaring file is read from the DECLARES edge rather than parsed out of
+# the symbol id. An id has two shapes -- "{file}::{kind}::{name}" for a
+# top-level declaration and "{file}::{kind:Container:name}" for a method --
+# so the method form carries only two "::" separators and no fixed split
+# recovers the file. The edge is authoritative and already indexed.
+# (Cypher rejects "#" comments, which is why this note is here.)
 GET_CODE_SYMBOL = """
 MATCH (s:CodeSymbol)
 WHERE toLower(s.name) = toLower($name)
   AND ($file_prefix = '' OR s.id STARTS WITH $file_prefix)
+OPTIONAL MATCH (f:File)-[:DECLARES]->(s)
 RETURN s.id AS id,
+       coalesce(f.id, '') AS file_id,
        s.name AS name,
        coalesce(s.kind, '') AS kind,
        coalesce(s.signature, '') AS signature,
