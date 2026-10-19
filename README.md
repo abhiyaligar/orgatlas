@@ -2,7 +2,7 @@
 
 > A graph-powered engineering onboarding agent that explains how a SaaS company’s systems work and why key technical decisions were made.
 
-OrgAtlas turns engineers, teams, services, repositories, documents, incidents, and decisions into a connected FalkorDB graph. It helps new engineering hires understand their team’s systems, ownership, dependencies, and essential learning path; it also traces architecture decisions back to the evidence that supports them. A read-only MCP server gives coding agents the same verified architecture context before they plan or change code.
+OrgAtlas turns engineers, teams, services, repositories, documents, incidents, and decisions into a connected FalkorDB graph. It helps new engineering hires understand their team’s systems, ownership, dependencies, and essential learning path; it also traces architecture decisions back to the evidence that supports them. An MCP server gives coding agents the same verified architecture context before they plan or change code, and can read the source text of a declaration without the agent re-reading the repository.
 
 It also ingests a real open-source repository. Git history is parsed inside an isolated sandbox, exported declarations are extracted with tree-sitter, and every stored description records whether it was written by the file’s own authors or generated as a fallback. “What does this function do” and “who changed it, and why” are then answered from evidence rather than inference.
 
@@ -18,12 +18,14 @@ It also ingests a real open-source repository. Git history is parsed inside an i
 | Model provider | Nebius, through its OpenAI-compatible API |
 | Hosting | Render Static Site (web) and Render Web Service (API) |
 | Graph view | Cytoscape.js |
-| Coding-agent context | Read-only OrgAtlas MCP server, 11 tools |
+| Coding-agent context | OrgAtlas MCP server ? 13 read tools, 2 ingest tools behind a write token |
+| File bodies | Supabase Storage over its S3-compatible endpoint, content-addressed and commit-pinned |
 
 ## Documentation
 
 Start with the [documentation index](Docs/README.md). The key implementation references are:
 
+- [What it is, how it works, why, and use cases](Docs/PRODUCT.md)
 - [Product requirements](Docs/PRD.md)
 - [System architecture](Docs/ARCHITECTURE.md)
 - [FalkorDB design](Docs/FALKORDB.md)
@@ -31,6 +33,7 @@ Start with the [documentation index](Docs/README.md). The key implementation ref
 - [Frontend architecture](Docs/FRONTEND_ARCHITECTURE.md)
 - [Backend architecture](Docs/BACKEND_ARCHITECTURE.md)
 - [MCP server design](Docs/MCP_SERVER.md)
+- [Source bodies](Docs/SOURCE_BODIES.md)
 
 ## Scope guardrails
 

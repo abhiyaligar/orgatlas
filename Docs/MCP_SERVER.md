@@ -4,7 +4,10 @@
 
 The OrgAtlas Context Server exposes source-backed engineering architecture context to compatible coding agents through Model Context Protocol (MCP). Its purpose is to help an agent make relevant, architecture-aligned changes by revealing the systems, repositories, owners, dependencies, incidents, decisions, and documents surrounding a proposed change.
 
-It is a context service—not a code-generation, repository-editing, deployment, or database-writing service.
+It is a context service—not a code-generation, repository-editing, or
+deployment service. It never writes to a database directly. The one exception is
+repository ingestion, which writes to the knowledge graph and requires the
+separate write token described under [Authentication](#authentication).
 
 MCP supports prompts, resources, and tools. OrgAtlas uses each primitive intentionally: stable context is exposed as resources, reusable planning guidance as prompts, and parameterized graph retrieval as tools. [MCP server primitives](https://modelcontextprotocol.io/specification/draft/server/index)
 

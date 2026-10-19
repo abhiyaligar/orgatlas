@@ -2,7 +2,9 @@
 
 ## Overview
 
-OrgAtlas has five runtime boundaries: a browser client, a private API/agent service, an MCP server for coding agents, read-only unless a write token is presented, an isolated ingestion sandbox, and FalkorDB Cloud. Nebius is used only by the API service, to synthesise a user's question into a clear answer and to fill documentation gaps the authors themselves left.
+OrgAtlas has six runtime boundaries: a browser client, a private API/agent service, an MCP server for coding agents, an isolated ingestion sandbox, object storage for file bodies, and FalkorDB Cloud. Nebius is used only by the API service, to synthesise a user's question into a clear answer and to fill documentation gaps the authors themselves left.
+
+File bodies are the one thing kept outside the graph. The graph holds their address ? path, line ranges, and the commit each description was written against ? and object storage holds the bytes, content-addressed so identical content is stored once. The ingestion sandbox never receives a storage credential: it returns the text it has already read and the API uploads it. See [Source bodies](SOURCE_BODIES.md).
 
 ```text
 Browser: React application
@@ -29,6 +31,7 @@ Coding agent (MCP host)
 Render: OrgAtlas MCP server
   ├─ Expose architecture-context resources and prompts
   ├─ Execute approved read-only context tools
+  ├─ Execute ingestion tools when a write token is presented
   └─ Return citations, risk signals, and bounded graph paths
           │
           ▼
@@ -49,9 +52,10 @@ Ingestion (on request)
 | --- | --- | --- |
 | React client | Interaction, presentation, local UI state, graph rendering | Hold provider/database secrets or query FalkorDB directly |
 | FastAPI | Input validation, retrieval, tool selection, response grounding, ingestion orchestration, description fallback | Return uncited claims or expose unrestricted database queries |
-| MCP server | Give coding agents source-backed architecture context through approved read-only tools | Write code, alter repositories/deployments, or expose arbitrary Cypher. Ingesting a repository needs the separate write token (ADR-013) |
+| MCP server | Give coding agents source-backed architecture context through approved read tools; ingest a repository when a write token is presented |
 | Ingestion sandbox | Clone one public repository, parse its history, extract declarations | Receive graph or model credentials; clone dependency repositories; touch the graph |
 | FalkorDB Cloud | Persistent graph, traversal, indexes, and source relationships | Generate natural-language answers |
+| Object storage | Hold immutable file bodies, content-addressed, addressed by the graph | Hold the graph, or be reachable by the ingestion sandbox |
 | Nebius | Grounded answer synthesis and documentation fallback for undescribed files | Connect to the graph or receive credentials from the client |
 
 ## Request flow

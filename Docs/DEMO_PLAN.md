@@ -6,7 +6,27 @@
 
 ## Fictional company scenario
 
-Use a fictional SaaS company with Payments and Platform teams. Checkout depends on Token Service and a Kafka event stream. A prior synchronous-call incident led the Payments team to adopt Kafka; the decision is represented by meeting notes, a design document, a ticket, a pull request, an incident, and named owners.
+Use a fictional SaaS company with Payments and Platform teams. Checkout depends on Token Service and a Kafka event stream; a prior synchronous-call incident led the team to adopt Kafka. Ingest whichever repository is available for the code layer and keep the company memory above it separate and clearly labelled (see below); the decision is represented by meeting notes, a design document, a ticket, a pull request, an incident, and named owners.
+
+### Know what is real and what is seeded
+
+This matters before a judge does the arithmetic.
+
+| Layer | Where it comes from | Status |
+| --- | --- | --- |
+| Code, history, declarations, churn, contributors | Ingested from the real repository | **Real.** Verifiable with `git log`. |
+| File bodies | The scanned revision, in object storage | **Real**, pinned to a commit. |
+| Services, teams, decisions, incidents, chat | `seed_demo_workspace.py` and `seed_slack_history.py` | **Fictional.** Marked `source = 'seed'`. |
+
+The seeded organisation context is **not derived from the ingested repository**.
+A judge who greps the repository for the owning team or the ADR will not find
+them, and that is expected rather than a defect.
+
+So do not imply that a decision was recovered from the code. Show the value where
+it is real and verifiable — declarations, history, churn, ownership of code — and
+present the organisational context as the seeded company memory it is. Claiming a
+token saving is the other thing to avoid: measured against `git log` on the same
+questions, git is cheaper, and a judge who checks will find it.
 
 ## Live-demo sequence
 
