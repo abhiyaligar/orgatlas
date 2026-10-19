@@ -19,7 +19,6 @@ What is currently built is described by the code and its tests rather than by a 
 | [Documents](DOCUMENTS.md) | Ingesting PDFs, markdown and CSV; verified extraction; decision evidence | A document format, extraction rule, or graph relationship changes |
 | [Slack bot](SLACK.md) | Answering questions in a channel, from the same graph the API uses | A Slack behaviour, scope, or safety rule changes |
 | [Deployment](DEPLOYMENT.md) | Render/FalkorDB Cloud environments and release checklist | Infrastructure or environment configuration changes |
-| [Demo plan](DEMO_PLAN.md) | Judge-facing story, seed data, and fallback plan | The demo scenario changes |
 | [Decisions](DECISIONS.md) | Architecture Decision Records (ADRs) | A material choice is made or reversed |
 
 ## Change protocol
